@@ -1,0 +1,29 @@
+.vscode/**
+.vscode-test/**
+.claude/**
+.github/**
+tmp/**
+src/**
+webviews/**
+esbuild.mjs
+esbuild-dt-sql-parser.mjs
+esbuild-extension.mjs
+third-party-notices.mjs
+.gitignore
+.yarnrc
+**/tsconfig.json
+**/eslint.config.mjs
+**/*.map
+**/*.ts
+**/*.tsx
+**/*.spec.js
+# Only the esbuild bundle (esbuild-extension.mjs), its lazily loaded chunks and the dt-sql-parser file it loads ship from out/.
+out/**
+!out/extension.js
+!out/chunks/**
+!out/vendor/**
+**/.vscode-test.*
+CLAUDE.md
+CONTRIBUTING.md
+# README screenshots: the packaged README links to them in the GitHub repository instead.
+images/readme/**

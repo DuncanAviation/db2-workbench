@@ -1,0 +1,47 @@
+// A launch configuration that compiles the extension and then opens it inside a new window
+// Use IntelliSense to learn about possible attributes.
+// Hover to view descriptions of existing attributes.
+// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Run Extension",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}"
+			],
+			"outFiles": [
+				"${workspaceFolder}/out/**/*.js"
+			],
+			"preLaunchTask": "${defaultBuildTask}"
+		},
+		{
+			// Fallback for when "Run Extension" fails with "Extension host did not start in 10 seconds".
+			// VS Code 1.139.0's bundled debugger has a known bug attaching to "localhost": it probes 127.0.0.1
+			// and [::1] at once, and on Node 24.20+ cancelling the losing probe breaks its retries, so the
+			// attach usually fails (microsoft/vscode-js-debug#2416, fixed in #2417 but not yet in a stable
+			// build). This opens the Extension Development Host without making it wait for a debugger
+			// (--inspect-extensions, not --inspect-brk-extensions), then attaches to 127.0.0.1 explicitly,
+			// which skips the localhost probing entirely. Delete it once a VS Code update ships the fix.
+			//
+			// Breakpoints in activate() itself can be missed, since the extension host is already running by
+			// the time this attaches. "restart" re-attaches after Developer: Reload Window, which relaunches
+			// the extension host on the same port.
+			"name": "Run Extension (attach over IPv4)",
+			"type": "node",
+			"request": "attach",
+			"address": "127.0.0.1",
+			"port": 9339,
+			"timeout": 30000,
+			"restart": true,
+			"continueOnAttach": true,
+			"sourceMaps": true,
+			"outFiles": [
+				"${workspaceFolder}/out/**/*.js"
+			],
+			"preLaunchTask": "Open Extension Development Host (inspect over IPv4)"
+		}
+	]
+}

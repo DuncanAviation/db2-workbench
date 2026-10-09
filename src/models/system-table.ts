@@ -1,0 +1,30 @@
+export interface SystemTable {
+	schema: string;
+	name: string;
+	description: string;
+	remarks: string;
+	dbName: string;
+	alteredTimestamp: Date;
+	fileType: string;
+	location: string;
+	tbDbName: string;
+	tbName: string;
+	tbMember: string;
+	sysTable: string;
+	selectOmit: string;
+	insertable: string;
+	iaspNumber: number;
+	enabled: string;
+	maintain: string;
+	refresh: string;
+	refreshTimestamp: Date;
+	mqtDef: string;
+	isolation: string;
+	partTable: string;
+	definer: string;
+	mqtRstDfr: string;
+	decFltRnd: string;
+	control: string;
+	temporalType: string;
+	dropRule: string;
+}

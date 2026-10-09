@@ -1,0 +1,39 @@
+# Changelog
+
+All notable changes to DB2 Workbench are documented here. The format follows [Keep a Changelog](http://keepachangelog.com/).
+
+DB2 Workbench is in **beta**: settings and file formats may still change, and version numbers do not yet imply stability guarantees.
+
+## [Unreleased]
+
+### Added
+
+- **Entity diagrams.** `DB2: New Diagram` creates a `.db2diagram` file that opens in a diagram editor: add tables from a searchable tree, see real foreign key relationships drawn with crow's-foot cardinality, filter the canvas, navigate with an overview map, and re-run automatic layout. Diagrams support undo/redo and hot exit through VS Code's own custom editor plumbing.
+- **Diagram sync and repair.** Sync a diagram against the live catalog to pick up added, changed or dropped tables, with a summary of what changed and a prompt before anything is removed. Tables a relationship points at but the diagram is missing can be added in one step, several at a time.
+- **Diagram export.** Export to `.drawio` (lossless — the same serializer that saves the file), DBML, or Frictionless Table Schema.
+- **Schema import and export.** Export catalog metadata to DBML or Frictionless Table Schema, and import supplemental metadata from either format for environments where the DB2 catalog is incomplete.
+- **SQL schema imports.** Import metadata from site-specific tables by supplying up to three statements — tables, columns and relationships — and mapping each statement's result columns onto the fields the extension understands. Saved imports live in `db2-workbench.sqlImports`, are attached to the connections that use them, and can be edited and refreshed in place.
+- **Import visibility.** Imported tables and columns are badged in the schema tree and on diagrams so imported metadata is never mistaken for the real catalog. A View Imports dialog lists everything imported for a connection and can disable an import without deleting it.
+- **Table Data tab.** Browse and search a table's data from the schema browser, with add, edit and delete row support and a panel that shows the generated SQL as it runs, statement by statement.
+- **Advised Indexes tab.** DB2's own index advice from `QSYS2.SYSIXADV`, with generated `CREATE INDEX` DDL that can be run from the tab and a refresh that rechecks the live advice.
+- **Columns, Table Keys, Foreign Keys and Indexes tabs** in the schema browser, backed by `QSYS2.SYSCOLUMNS2`, `SYSCST`, `SYSKEYCST`, `SYSREFCST` and the index catalog.
+- Refresh and Export actions on every data table in the extension's webviews.
+
+### Changed
+
+- Catalog metadata is cached per **connection** rather than per editor session, so two SQL tabs, the schema browser and a diagram pointed at the same connection share one set of lookups instead of each re-querying.
+- Per-table catalog lookups are batched: loading a diagram or a multi-table statement issues one chunked query instead of one query per table.
+- The schema tree is virtualized and filter-driven, so large schemas stay responsive.
+- The schema tree is now a single shared component used by both the schema browser (single-select) and the diagram table picker (multi-select).
+
+### Fixed
+
+- Reconnect handling after a dropped connection.
+- Column name handling where a table's short (system) name and long (SQL) name differ.
+
+## Earlier beta builds
+
+- SQL and stored procedure execution over ODBC, with a paged results grid, per-file sessions, query and connection history, and results openable in an editor tab or separate window.
+- Connection management with passwords held in VS Code secret storage.
+- SQL autocomplete for schemas, tables and columns, and `F12` to open a table's definition.
+- SQL formatting, including embedded host-language SQL, with configurable indentation, keyword case, wrapping and clause layout.

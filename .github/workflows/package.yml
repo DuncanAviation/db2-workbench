@@ -1,0 +1,57 @@
+name: Package
+
+# Builds one .vsix per platform. odbc is a native module, so a package only runs on the OS and
+# architecture it was installed on: each target builds on a runner of its own kind, and the
+# --target flag tells the Marketplace which platform each .vsix serves.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: windows-latest
+          target: win32-x64
+        - os: ubuntu-latest
+          target: linux-x64
+        - os: macos-latest
+          target: darwin-arm64
+        - os: macos-15-intel
+          target: darwin-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-node@v5
+      with:
+        # Same Node CONTRIBUTING.md asks developers to use.
+        node-version: '22.17.0'
+        cache: npm
+
+    # odbc downloads a prebuilt binary when IBM publishes one for the platform, and otherwise
+    # compiles from source against unixODBC's headers. Installing them either way keeps a missing
+    # prebuilt from failing the build. On macOS, odbc's binding.gyp links against Homebrew's default
+    # prefix (/opt/homebrew on arm64, /usr/local on x64), which is where the runners have it.
+    - name: Install unixODBC (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y unixodbc-dev
+
+    - name: Install unixODBC (macOS)
+      if: runner.os == 'macOS'
+      run: brew install unixodbc
+
+    - run: npm ci
+
+    # vsce runs vscode:prepublish (compile plus the production webview bundles) before packaging.
+    - run: npm run build-exe -- --target ${{ matrix.target }}
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: db2-workbench-${{ matrix.target }}
+        path: '*.vsix'
+        if-no-files-found: error

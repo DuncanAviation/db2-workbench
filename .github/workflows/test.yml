@@ -1,0 +1,93 @@
+name: Test
+
+# Runs the four test suites as parallel jobs. None of them needs a database: the extension host suite
+# runs against the fake driver (see .vscode-test.mjs). They run on Windows, the platform the extension's
+# users are on, which also lets the extension host suite open VS Code without a virtual display.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint_and_unit:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-node@v5
+      with:
+        # Same Node CONTRIBUTING.md asks developers to use.
+        node-version: '22.17.0'
+        cache: npm
+
+    - run: npm ci
+
+    # Compiles everything (extension host, webviews, dt-sql-parser bundle) and lints.
+    - run: npm run pretest
+
+    - run: npm run test:unit
+
+  webview_tests:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-node@v5
+      with:
+        node-version: '22.17.0'
+        cache: npm
+
+    - run: npm ci
+
+    - run: npm run test:webviews
+
+  webview_browser_tests:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-node@v5
+      with:
+        node-version: '22.17.0'
+        cache: npm
+
+    - run: npm ci
+
+    # Headless shell only: the suite never opens a headed browser, and it is a much smaller download.
+    - run: npx playwright install --only-shell chromium
+
+    - run: npm run test:webviews:browser
+
+    # A failing browser test leaves a screenshot here.
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: webview-browser-attachments
+        path: webviews/.vitest/attachments/
+        if-no-files-found: ignore
+
+  extension_host_tests:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-node@v5
+      with:
+        node-version: '22.17.0'
+        cache: npm
+
+    - run: npm ci
+
+    # Lint runs in lint_and_unit, so compile only rather than npm test's pretest.
+    - run: npm run compile
+
+    - run: npx vscode-test
+
+    # The test instance's logs (extension host output, renderer and main process) from the failed run.
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: extension-host-logs
+        path: .vscode-test/test-user-data/logs/
+        if-no-files-found: ignore

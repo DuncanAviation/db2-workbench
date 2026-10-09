@@ -1,0 +1,16 @@
+/*
+ * A schema group node's wrapper div gets `pointer-events: none` via an inline style (see buildNodes in
+ * app.tsx) so a click-drag over its interior falls through to the pane underneath and pans the canvas,
+ * rather than being captured by the node itself - React Flow's own stylesheet unconditionally sets
+ * `.react-flow__node { pointer-events: all; }`, which an inline style is the only reliable way to beat
+ * without fighting that rule's specificity.
+ *
+ * That inline `none` is inherited by every descendant too, though, which would otherwise also swallow the
+ * resize handles NodeResizer renders inside the same node - they don't accept a style/className prop for
+ * this, so this rule opts them back in directly. (The drag-handle title label needs no such rule: it
+ * already sets its own `pointer-events: auto` via sx, which - as a declaration made directly on that
+ * element - overrides the inherited value with no specificity contest involved.)
+ */
+.react-flow__resize-control {
+	pointer-events: auto;
+}

@@ -1,0 +1,62 @@
+// See https://go.microsoft.com/fwlink/?LinkId=733558
+// for the documentation about the tasks.json format
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "init",
+			"type": "npm",
+			"script": "init",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"presentation": {
+				"close": false
+			}
+		},
+		{
+			"type": "npm",
+			"script": "watch",
+			"problemMatcher": "$tsc-watch",
+			"isBackground": true,
+			"presentation": {
+				"reveal": "never"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			// Used by the "Run Extension (attach over IPv4)" launch configuration - see its comment in
+			// launch.json. Builds first (the same watch task F5 uses), then opens the Extension Development
+			// Host with its inspector on 127.0.0.1:9339. The port must match that configuration's "port".
+			"label": "Open Extension Development Host (inspect over IPv4)",
+			"type": "shell",
+			"command": "code",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--inspect-extensions=9339",
+				"--new-window"
+			],
+			"dependsOn": "npm: watch",
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "never"
+			}
+		},
+		{
+			"type": "npm",
+			"script": "build-exe",
+			"problemMatcher": "$tsc-watch",
+			"isBackground": true,
+			"presentation": {
+				"reveal": "never"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		}
+	]
+}

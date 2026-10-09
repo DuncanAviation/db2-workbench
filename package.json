@@ -1,0 +1,765 @@
+{
+	"name": "db2-workbench",
+	"displayName": "DB2 Workbench",
+	"description": "Run SQL and stored procedures against IBM DB2 for i (AS/400) over ODBC, with a results grid, schema browser, ER diagrams and SQL formatting.",
+	"version": "0.1.0",
+	"publisher": "DuncanAviation",
+	"license": "Apache-2.0",
+	"preview": true,
+	"pricing": "Free",
+	"icon": "images/icon.png",
+	"galleryBanner": {
+		"color": "#1D4ED8",
+		"theme": "dark"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/DuncanAviation/db2-workbench.git"
+	},
+	"bugs": {
+		"url": "https://github.com/DuncanAviation/db2-workbench/issues"
+	},
+	"homepage": "https://github.com/DuncanAviation/db2-workbench#readme",
+	"qna": "https://github.com/DuncanAviation/db2-workbench/discussions",
+	"engines": {
+		"vscode": "^1.120.0"
+	},
+	"categories": [
+		"Data Science",
+		"Formatters",
+		"Visualization"
+	],
+	"keywords": [
+		"db2",
+		"db2 for i",
+		"ibm i",
+		"as400",
+		"iseries",
+		"sql",
+		"odbc",
+		"database",
+		"stored procedure",
+		"schema",
+		"erd",
+		"diagram"
+	],
+	"main": "./out/extension.js",
+	"type": "module",
+	"contributes": {
+		"viewsContainers": {
+			"panel": [
+				{
+					"id": "db2-workbench-results-container",
+					"title": "DB2 Workbench",
+					"icon": "images/activity-bar.svg"
+				}
+			],
+			"activitybar": [
+				{
+					"id": "db2-workbench-connections-container",
+					"title": "DB2 Workbench",
+					"icon": "images/activity-bar.svg"
+				}
+			]
+		},
+		"views": {
+			"db2-workbench-results-container": [
+				{
+					"type": "webview",
+					"id": "db2-workbench.sqlResultsView",
+					"name": "DB2 Workbench",
+					"icon": "$(database)"
+				}
+			],
+			"db2-workbench-connections-container": [
+				{
+					"type": "tree",
+					"id": "db2-workbench.connectionsView",
+					"name": "Settings",
+					"icon": "$(database)"
+				}
+			]
+		},
+		"customEditors": [
+			{
+				"viewType": "db2-workbench.diagramEditor",
+				"displayName": "DB2 Diagram",
+				"selector": [
+					{
+						"filenamePattern": "*.db2diagram"
+					}
+				],
+				"priority": "default"
+			}
+		],
+		"commands": [
+			{
+				"command": "db2-workbench.executeSql",
+				"title": "DB2: Execute SQL",
+				"icon": "$(play)"
+			},
+			{
+				"command": "db2-workbench.executeAllSql",
+				"title": "DB2: Execute All SQL",
+				"icon": "$(run-all)"
+			},
+			{
+				"command": "db2-workbench.executeSelectedSql",
+				"title": "DB2: Execute Selected SQL",
+				"icon": "$(list-selection)"
+			},
+			{
+				"command": "db2-workbench.formatSql",
+				"title": "DB2: Format SQL"
+			},
+			{
+				"command": "db2-workbench.openResultsInEditor",
+				"title": "Open Results in Editor"
+			},
+			{
+				"command": "db2-workbench.openResultsInNewWindow",
+				"title": "Open Results in New Window"
+			},
+			{
+				"command": "db2-workbench.addConnection",
+				"title": "Add Connection",
+				"icon": "$(add)"
+			},
+			{
+				"command": "db2-workbench.openSchemas",
+				"title": "Open Schemas",
+				"icon": "$(list-tree)"
+			},
+			{
+				"command": "db2-workbench.newDiagram",
+				"title": "DB2: New Diagram",
+				"icon": "$(type-hierarchy)"
+			},
+			{
+				"command": "db2-workbench.newDiagramForConnection",
+				"title": "New Diagram",
+				"icon": "$(type-hierarchy)"
+			},
+			{
+				"command": "db2-workbench.viewTableDetails",
+				"title": "DB2: Go to Definition",
+				"icon": "$(list-tree)"
+			},
+			{
+				"command": "db2-workbench.editConnection",
+				"title": "Edit Connection",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "db2-workbench.deleteConnection",
+				"title": "Delete Connection",
+				"icon": "$(trash)"
+			},
+			{
+				"command": "db2-workbench.editSqlImport",
+				"title": "DB2: Edit SQL Import",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "db2-workbench.refreshSqlImport",
+				"title": "DB2: Refresh SQL Import",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "db2-workbench.editFormatting",
+				"title": "Edit Formatting",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "db2-workbench.restoreFormattingDefaults",
+				"title": "Restore Formatting Defaults",
+				"icon": "$(discard)"
+			}
+		],
+		"submenus": [
+			{
+				"id": "db2-workbench.sqlResultsViewMenu",
+				"label": "Results Options",
+				"icon": "$(more)"
+			},
+			{
+				"id": "db2-workbench.connectionMenu",
+				"label": "Connection Options",
+				"icon": "$(more)"
+			},
+			{
+				"id": "db2-workbench.formattingMenu",
+				"label": "Formatting Options",
+				"icon": "$(more)"
+			}
+		],
+		"menus": {
+			"editor/title": [
+				{
+					"command": "db2-workbench.executeSql",
+					"group": "navigation",
+					"when": "resourceLangId == sql"
+				}
+			],
+			"editor/context": [
+				{
+					"command": "db2-workbench.executeSql",
+					"group": "navigation@1",
+					"when": "resourceLangId == sql"
+				},
+				{
+					"command": "db2-workbench.executeSelectedSql",
+					"group": "navigation@2",
+					"when": "resourceLangId == sql"
+				},
+				{
+					"command": "db2-workbench.executeAllSql",
+					"group": "navigation@3",
+					"when": "resourceLangId == sql"
+				},
+				{
+					"command": "db2-workbench.formatSql",
+					"group": "navigation@4",
+					"when": "resourceLangId == sql"
+				},
+				{
+					"command": "db2-workbench.viewTableDetails",
+					"group": "navigation@5",
+					"when": "resourceLangId == sql"
+				}
+			],
+			"view/title": [
+				{
+					"submenu": "db2-workbench.sqlResultsViewMenu",
+					"when": "view == db2-workbench.sqlResultsView",
+					"group": "navigation"
+				}
+			],
+			"db2-workbench.sqlResultsViewMenu": [
+				{
+					"command": "db2-workbench.openResultsInEditor"
+				},
+				{
+					"command": "db2-workbench.openResultsInNewWindow"
+				}
+			],
+			"view/item/context": [
+				{
+					"submenu": "db2-workbench.connectionMenu",
+					"group": "inline"
+				},
+				{
+					"submenu": "db2-workbench.formattingMenu",
+					"group": "inline"
+				}
+			],
+			"db2-workbench.connectionMenu": [
+				{
+					"command": "db2-workbench.addConnection",
+					"when": "view == db2-workbench.connectionsView && viewItem == root"
+				},
+				{
+					"command": "db2-workbench.openSchemas",
+					"when": "view == db2-workbench.connectionsView && viewItem == connectionItem",
+					"group": "connection@1"
+				},
+				{
+					"command": "db2-workbench.newDiagramForConnection",
+					"when": "view == db2-workbench.connectionsView && viewItem == connectionItem",
+					"group": "connection@2"
+				},
+				{
+					"command": "db2-workbench.editConnection",
+					"when": "view == db2-workbench.connectionsView && viewItem == connectionItem",
+					"group": "connection@3"
+				},
+				{
+					"command": "db2-workbench.deleteConnection",
+					"when": "view == db2-workbench.connectionsView && viewItem == connectionItem",
+					"group": "connection@4"
+				}
+			],
+			"db2-workbench.formattingMenu": [
+				{
+					"command": "db2-workbench.editFormatting",
+					"when": "view == db2-workbench.connectionsView && viewItem == formattingItem",
+					"group": "formatting@1"
+				},
+				{
+					"command": "db2-workbench.restoreFormattingDefaults",
+					"when": "view == db2-workbench.connectionsView && viewItem == formattingItem",
+					"group": "formatting@2"
+				}
+			]
+		},
+		"keybindings": [
+			{
+				"command": "db2-workbench.executeSql",
+				"key": "ctrl+r",
+				"mac": "cmd+r",
+				"when": "editorTextFocus && editorLangId == 'sql'"
+			},
+			{
+				"command": "db2-workbench.executeAllSql",
+				"key": "ctrl+alt+r",
+				"mac": "cmd+alt+r",
+				"when": "editorTextFocus && editorLangId == 'sql'"
+			},
+			{
+				"command": "db2-workbench.executeSelectedSql",
+				"key": "ctrl+shift+r",
+				"mac": "cmd+shift+r",
+				"when": "editorTextFocus && editorLangId == 'sql'"
+			},
+			{
+				"command": "db2-workbench.formatSql",
+				"key": "ctrl+shift+f",
+				"mac": "cmd+shift+f",
+				"when": "editorTextFocus && editorLangId == 'sql'"
+			},
+			{
+				"command": "db2-workbench.viewTableDetails",
+				"key": "f12",
+				"when": "editorTextFocus && editorLangId == 'sql'"
+			}
+		],
+		"configuration": [
+			{
+				"title": "DB2 Workbench",
+				"properties": {
+					"db2-workbench.connections": {
+						"type": "array",
+						"description": "List of DB2 connections.",
+						"default": [],
+						"items": {
+							"type": "object",
+							"required": [
+								"id",
+								"name",
+								"host",
+								"userName",
+								"defaultTableSchema"
+							],
+							"properties": {
+								"id": {
+									"type": "string"
+								},
+								"name": {
+									"type": "string"
+								},
+								"host": {
+									"type": "string"
+								},
+								"userName": {
+									"type": "string"
+								},
+								"defaultTableSchema": {
+									"type": "string",
+									"description": "The schema used by default for autocomplete and column lookups when running SQL against this connection."
+								},
+								"driver": {
+									"type": "string",
+									"description": "Which driver opens this connection. Leave unset for ODBC, which is what every existing connection uses.",
+									"default": "odbc"
+								},
+								"connectionString": {
+									"type": "string",
+									"description": "Extra driver-specific connection settings. For the ODBC driver this is a connection string, and the system, uid, and pwd are added for you."
+								},
+								"resultBorderColor": {
+									"type": "string",
+									"description": "A CSS color used to style the border of the SQL results window when this connection is active."
+								},
+								"sqlImportIds": {
+									"type": "array",
+									"description": "Ids of the db2-workbench.sqlImports entries that run against this connection when it opens. An id with no matching entry is ignored.",
+									"items": {
+										"type": "string"
+									}
+								}
+							}
+						}
+					},
+					"db2-workbench.sqlImports": {
+						"type": "array",
+						"description": "Saved SQL schema imports - statements that read site-specific metadata tables and are mapped onto table, column and relationship fields. Only entries in USER settings are ever run; workspace and folder values are ignored, because these statements run automatically against your own credentials whenever a linked connection opens. Every statement must be read-only (SELECT or WITH).",
+						"default": [],
+						"scope": "application",
+						"items": {
+							"type": "object",
+							"required": [
+								"id",
+								"name",
+								"tables"
+							],
+							"properties": {
+								"id": {
+									"type": "string"
+								},
+								"name": {
+									"type": "string",
+									"description": "How this import is named in the View Imports list."
+								},
+								"tables": {
+									"type": "object",
+									"required": [
+										"sql",
+										"mapping"
+									],
+									"properties": {
+										"sql": {
+											"type": "string",
+											"description": "A read-only statement (SELECT or WITH). Each result column name must be distinct."
+										},
+										"mapping": {
+											"type": "object",
+											"description": "Result column name to the field it supplies. A result column that isn't listed is ignored.",
+											"additionalProperties": {
+												"type": "string"
+											}
+										},
+										"resultColumns": {
+											"type": "array",
+											"description": "The result column names seen the last time this statement ran - recorded so a mapping can be shown, and drift reported, before re-running.",
+											"items": {
+												"type": "string"
+											}
+										}
+									}
+								},
+								"columns": {
+									"type": "object",
+									"required": [
+										"sql",
+										"mapping"
+									],
+									"properties": {
+										"sql": {
+											"type": "string",
+											"description": "A read-only statement (SELECT or WITH). Each result column name must be distinct."
+										},
+										"mapping": {
+											"type": "object",
+											"description": "Result column name to the field it supplies. A result column that isn't listed is ignored.",
+											"additionalProperties": {
+												"type": "string"
+											}
+										},
+										"resultColumns": {
+											"type": "array",
+											"description": "The result column names seen the last time this statement ran - recorded so a mapping can be shown, and drift reported, before re-running.",
+											"items": {
+												"type": "string"
+											}
+										}
+									}
+								},
+								"relationships": {
+									"type": "object",
+									"required": [
+										"sql",
+										"mapping"
+									],
+									"properties": {
+										"sql": {
+											"type": "string",
+											"description": "A read-only statement (SELECT or WITH). Each result column name must be distinct."
+										},
+										"mapping": {
+											"type": "object",
+											"description": "Result column name to the field it supplies. A result column that isn't listed is ignored.",
+											"additionalProperties": {
+												"type": "string"
+											}
+										},
+										"resultColumns": {
+											"type": "array",
+											"description": "The result column names seen the last time this statement ran - recorded so a mapping can be shown, and drift reported, before re-running.",
+											"items": {
+												"type": "string"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"db2-workbench.useAlias": {
+						"type": "string",
+						"enum": [
+							"Always",
+							"Smart",
+							"Never"
+						],
+						"description": "Whether SQL autocomplete should qualify columns with a table alias.",
+						"default": "Smart"
+					}
+				}
+			},
+			{
+				"title": "Results",
+				"properties": {
+					"db2-workbench.historyCount": {
+						"type": "number",
+						"description": "Indicates how many history events to display on the history tab.",
+						"default": 20
+					},
+					"db2-workbench.cursorFetchSize": {
+						"type": "number",
+						"description": "Indicates how many rows will be fetched at a time when running queries.",
+						"default": 100
+					},
+					"db2-workbench.sqlImportRowLimit": {
+						"type": "number",
+						"description": "The most rows a single SQL schema import statement may return before its results are truncated.",
+						"default": 50000
+					},
+					"db2-workbench.autoFocusResults": {
+						"type": "boolean",
+						"description": "Automatically focus the DB2 Workbench panel and switch to the Data tab when a SQL statement is executed.",
+						"default": true
+					},
+					"db2-workbench.resultHeadingLabels": {
+						"type": "array",
+						"uniqueItems": true,
+						"items": {
+							"type": "string",
+							"enum": [
+								"Short Name",
+								"Long Name",
+								"Description"
+							]
+						},
+						"default": [
+							"Short Name"
+						],
+						"description": "Select the labels to include in result column headings. Multiple selected values will be stacked. Defaults to 'Short Name' (System Name) if empty."
+					}
+				}
+			},
+			{
+				"title": "Data Editing",
+				"properties": {
+					"db2-workbench.dataEdit.defaultValues": {
+						"type": "object",
+						"markdownDescription": "The value a new row's fields start with in the schema browser's Data tab (Add Row), by column type. `null` starts the field as NULL. A type left out uses the app's default: `''` for character types, `0` for numbers, the low value for dates, times and timestamps, `FALSE` for BOOLEAN, and NULL for binary types. Also editable from the Data tab's Settings dialog.",
+						"default": {},
+						"additionalProperties": false,
+						"properties": {
+							"CHAR": { "type": ["string", "null"] },
+							"VARCHAR": { "type": ["string", "null"] },
+							"GRAPHIC": { "type": ["string", "null"] },
+							"VARGRAPHIC": { "type": ["string", "null"] },
+							"DECIMAL": { "type": ["string", "null"] },
+							"NUMERIC": { "type": ["string", "null"] },
+							"SMALLINT": { "type": ["string", "null"] },
+							"INTEGER": { "type": ["string", "null"] },
+							"BIGINT": { "type": ["string", "null"] },
+							"REAL": { "type": ["string", "null"] },
+							"DOUBLE": { "type": ["string", "null"] },
+							"FLOAT": { "type": ["string", "null"] },
+							"DECFLOAT": { "type": ["string", "null"] },
+							"DATE": { "type": ["string", "null"] },
+							"TIME": { "type": ["string", "null"] },
+							"TIMESTAMP": { "type": ["string", "null"] },
+							"BOOLEAN": { "type": ["string", "null"] },
+							"BINARY": { "type": ["string", "null"] },
+							"VARBINARY": { "type": ["string", "null"] }
+						}
+					},
+					"db2-workbench.dataEdit.columnsWithTableDefault": {
+						"type": "string",
+						"enum": [
+							"tableDefault",
+							"appDefault"
+						],
+						"enumItemLabels": [
+							"Table Default",
+							"App Default"
+						],
+						"enumDescriptions": [
+							"Leave the field empty, so DB2 fills it with the table's default.",
+							"Start the field with its column type's default value."
+						],
+						"default": "tableDefault",
+						"description": "What a new row's field starts with in the Data tab (Add Row) when its column has a table default."
+					},
+					"db2-workbench.dataEdit.nullableColumns": {
+						"type": "string",
+						"enum": [
+							"null",
+							"appDefault"
+						],
+						"enumItemLabels": [
+							"<null>",
+							"App Default"
+						],
+						"enumDescriptions": [
+							"Start the field as NULL.",
+							"Start the field with its column type's default value."
+						],
+						"default": "null",
+						"description": "What a new row's field starts with in the Data tab (Add Row) when its column is nullable and has no table default."
+					}
+				}
+			},
+			{
+				"title": "Formatting",
+				"properties": {
+					"db2-workbench.formatting.tabWidth": {
+						"type": "number",
+						"default": 4,
+						"description": "Spaces per indentation level when formatting SQL (ignored when Use Tabs is enabled)."
+					},
+					"db2-workbench.formatting.useTabs": {
+						"type": "boolean",
+						"default": true,
+						"description": "Use tabs instead of spaces for indentation when formatting SQL."
+					},
+					"db2-workbench.formatting.keywordCase": {
+						"type": "string",
+						"enum": [
+							"upper",
+							"lower",
+							"preserve"
+						],
+						"default": "preserve",
+						"description": "Case applied to recognized SQL keywords when formatting."
+					},
+					"db2-workbench.formatting.denseOperators": {
+						"type": "boolean",
+						"default": false,
+						"description": "Omit spaces around binary operators (e.g. 'id=custId') when formatting SQL."
+					},
+					"db2-workbench.formatting.removeComments": {
+						"type": "boolean",
+						"default": false,
+						"description": "Strip all comments (SQL and embedded host-language) from SQL when formatting."
+					},
+					"db2-workbench.formatting.linesBetweenQueries": {
+						"type": "number",
+						"default": 1,
+						"description": "Number of blank lines to leave between statements when formatting a multi-statement SQL document."
+					},
+					"db2-workbench.formatting.expressionMaxWidth": {
+						"type": "number",
+						"default": 120,
+						"description": "Target max line width used when wrapping SELECT/GROUP BY/ORDER BY lists and function-call arguments."
+					},
+					"db2-workbench.formatting.selectFieldWrapping": {
+						"type": "string",
+						"enum": [
+							"oneColumnPerLine",
+							"wrapToWidth"
+						],
+						"enumItemLabels": [
+							"One Column Per Line",
+							"Wrap To Width"
+						],
+						"enumDescriptions": [
+							"Each SELECT column on its own line.",
+							"Keep SELECT columns comma-separated on the same line, wrapping only past Expression Max Width."
+						],
+						"default": "wrapToWidth",
+						"description": "Layout of the SELECT column list when formatting SQL."
+					},
+					"db2-workbench.formatting.clauseLayout": {
+						"type": "string",
+						"enum": [
+							"expanded",
+							"compact"
+						],
+						"enumItemLabels": [
+							"Expanded",
+							"Compact"
+						],
+						"enumDescriptions": [
+							"Every clause keyword (SELECT, FROM, WHERE, GROUP BY, ORDER BY, HAVING, JOIN, etc.) starts its own line, with its content below it.",
+							"Each clause keyword shares a line with the start of its content, wrapping to further lines only when needed."
+						],
+						"default": "compact",
+						"description": "Whether a clause keyword sits on its own line or shares a line with its content when formatting SQL."
+					},
+					"db2-workbench.formatting.indentJoins": {
+						"type": "boolean",
+						"default": false,
+						"description": "Indent JOIN clauses one level deeper than their FROM clause when formatting SQL."
+					},
+					"db2-workbench.formatting.indentWhere": {
+						"type": "boolean",
+						"default": false,
+						"description": "Indent the AND/OR lines of a WHERE or HAVING clause one level deeper than the line its first condition starts on when formatting SQL."
+					}
+				}
+			}
+		]
+	},
+	"scripts": {
+		"build-exe": "vsce package --pre-release",
+		"postbuild-exe": "tsc -p ./",
+		"bundle:extension": "node esbuild-extension.mjs",
+		"compile": "tsc -p ./ && tsc -p webviews && npm run compile:webviews && npm run bundle:dt-sql-parser",
+		"compile:webviews": "node esbuild.mjs",
+		"bundle:dt-sql-parser": "node esbuild-dt-sql-parser.mjs",
+		"init": "npm i",
+		"lint": "eslint src webviews",
+		"lint:fix": "eslint src webviews --fix",
+		"pretest": "npm run compile && npm run lint",
+		"test": "vscode-test",
+		"third-party-notices": "node third-party-notices.mjs",
+		"test:unit": "mocha --timeout 20000 \"out/**/*.spec.js\"",
+		"test:webviews": "vitest run --config webviews/vitest.config.ts",
+		"test:webviews:browser": "vitest run --config webviews/vitest.browser.config.ts",
+		"vscode:prepublish": "npm run compile && npm run compile:webviews -- --production && npm run bundle:extension && npm run third-party-notices",
+		"watch": "npm run bundle:dt-sql-parser && concurrently -n tsc,tsc:webviews,esbuild -c blue,cyan,yellow \"tsc -watch -p ./\" \"tsc -watch -p webviews\" \"npm run compile:webviews -- --watch\""
+	},
+	"dependencies": {
+		"odbc": "2.5.0"
+	},
+	"devDependencies": {
+		"@dbml/core": "10.1.1",
+		"@emotion/react": "11.14.0",
+		"@emotion/styled": "11.14.1",
+		"@mui/icons-material": "9.2.0",
+		"@mui/material": "9.2.0",
+		"@mui/x-date-pickers": "9.12.0",
+		"@stylistic/eslint-plugin": "5.10.0",
+		"@tanstack/react-table": "8.21.3",
+		"@tanstack/react-virtual": "3.14.7",
+		"@testing-library/dom": "10.4.2",
+		"@testing-library/react": "16.3.3",
+		"@testing-library/user-event": "14.6.7",
+		"@types/chai": "5.2.3",
+		"@types/mocha": "^10.0.10",
+		"@types/node": "22.x",
+		"@types/react": "19.2.17",
+		"@types/react-dom": "19.2.3",
+		"@types/vscode": "^1.120.0",
+		"@vitest/browser-playwright": "5.0.1",
+		"@vscode/test-cli": "^0.0.12",
+		"@vscode/test-electron": "^2.5.2",
+		"@vscode/vsce": "4.0.0",
+		"@xyflow/react": "12.11.6",
+		"antlr4ng": "2.0.11",
+		"chai": "6.2.2",
+		"concurrently": "10.0.3",
+		"dayjs": "1.11.23",
+		"dt-sql-parser": "4.5.0",
+		"elkjs": "0.12.0",
+		"esbuild": "0.28.1",
+		"eslint": "^9.39.3",
+		"eslint-plugin-check-file": "3.3.1",
+		"eslint-plugin-react-hooks": "7.1.1",
+		"eslint-plugin-security": "3.0.1",
+		"jsdom": "29.1.1",
+		"mocha": "11.8.0",
+		"playwright": "1.63.0",
+		"react": "19.2.7",
+		"react-dom": "19.2.7",
+		"rxjs": "7.8.2",
+		"typescript": "^5.9.3",
+		"typescript-eslint": "^8.56.1",
+		"vitest": "5.0.1",
+		"xml-js": "1.6.11"
+	}
+}
