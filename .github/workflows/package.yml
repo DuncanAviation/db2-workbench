@@ -48,7 +48,10 @@ jobs:
     - run: npm ci
 
     # vsce runs vscode:prepublish (compile plus the production webview bundles) before packaging.
+    # bash on every runner: Windows' default PowerShell drops the "--", so --target goes to npm and
+    # the platform name reaches vsce as a version ("Invalid version win32-x64").
     - run: npm run build-exe -- --target ${{ matrix.target }}
+      shell: bash
 
     - uses: actions/upload-artifact@v4
       with:
