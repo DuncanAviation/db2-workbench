@@ -1,0 +1,84 @@
+name: Bug report
+description: Something doesn't work, returns wrong results or shows wrong metadata.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove real host names, user names and data before you submit. Security problems go through [private reporting](https://github.com/DuncanAviation/db2-workbench/security/advisories/new), not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Include the exact error message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a .sql file and connect to ...
+        2. Run ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: statement
+    attributes:
+      label: Statement involved
+      description: The SQL or CALL statement, if the problem involves one. Table and column definitions help when results or metadata are wrong.
+      render: sql
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Running SQL / results panel
+        - Schema browser
+        - Table data editing
+        - Diagrams
+        - Schema import / export
+        - Autocomplete / formatting
+        - Connections
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: vscode-version
+    attributes:
+      label: VS Code version
+      description: From Help > About.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: ibmi-release
+    attributes:
+      label: IBM i release
+      placeholder: "7.5"
+  - type: input
+    id: odbc-driver
+    attributes:
+      label: IBM i Access ODBC driver version
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, or errors from Help > Toggle Developer Tools > Console.
