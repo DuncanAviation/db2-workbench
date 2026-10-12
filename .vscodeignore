@@ -9,6 +9,7 @@ esbuild.mjs
 esbuild-dt-sql-parser.mjs
 esbuild-extension.mjs
 third-party-notices.mjs
+release-info.mjs
 .gitignore
 .yarnrc
 **/tsconfig.json

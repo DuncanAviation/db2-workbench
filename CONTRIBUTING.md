@@ -38,6 +38,17 @@ This produces a `.vsix` for one platform (`win32-x64`, `linux-x64`, `darwin-arm6
 
 Packaging bundles the extension host code with esbuild and generates `THIRD_PARTY_NOTICES.txt` from what was bundled. Generating it fails if a bundled package uses a license that hasn't been reviewed. See `third-party-notices.mjs`.
 
+## Releasing
+
+Releases are published to the Marketplace by `.github/workflows/release.yml` when a version tag is pushed, never from a branch.
+
+1. In a pull request, set `version` in `package.json` and rename the changelog's `[Unreleased]` section to that version with the date (`## [0.3.0] - 2026-11-02`), leaving a fresh empty `[Unreleased]` above it. Odd minor versions publish as pre-releases, even minor versions as stable.
+2. Once it's merged, check the release from an up-to-date `main`: `node release-info.mjs v0.3.0` prints the channel and the release notes, or says what's wrong.
+3. Tag the merged commit and push the tag: `git tag v0.3.0` then `git push origin v0.3.0`.
+4. The workflow checks the tag, runs the tests, and builds every platform's package, then waits. Approve the `marketplace` deployment on the run's page to publish the packages and create the GitHub Release.
+
+A published version can't be replaced, so a fix after a release is a new patch version and a new tag.
+
 ## Dependencies
 
 Versions are pinned exactly. To add or update one, edit the version in `package.json` by hand, then run `npm install`. `npm install <package>@<version>` reformats `package.json`. Only `odbc` belongs in `dependencies`; everything that gets bundled goes in `devDependencies`.
