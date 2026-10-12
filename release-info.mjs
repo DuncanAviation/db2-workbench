@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 // Checks that a release tag is ready to publish and works out what the release workflow needs from
 // it. Run it before pushing a tag to see what the release would do:
@@ -11,10 +12,12 @@ import * as fs from 'node:fs';
 // VS Code offers pre-release users the highest version on either channel, so a pre-release line must
 // stay numerically ahead of the stable one to reach anyone.
 //
-// In GitHub Actions the tag defaults to GITHUB_REF_NAME and the results are written to GITHUB_OUTPUT.
+// In GitHub Actions the tag defaults to GITHUB_REF_NAME, the notes are written to a file in the
+// runner's temp directory and the results to GITHUB_OUTPUT. Run locally, the notes are only printed,
+// so nothing is left in the working tree for git or vsce package to pick up.
 
 const tag = process.argv[2] ?? process.env.GITHUB_REF_NAME;
-const notesPath = process.argv[3] ?? 'release-notes.md';
+const notesPath = process.argv[3] ?? (process.env.RUNNER_TEMP && path.join(process.env.RUNNER_TEMP, 'release-notes.md'));
 
 function fail(message) {
 	console.error(`release-info: ${message}`);
@@ -45,11 +48,15 @@ if (!notes) {
 	fail(`CHANGELOG.md's "## [${version}]" section is empty.`);
 }
 
-fs.writeFileSync(notesPath, notes + '\n');
+if (notesPath) {
+	fs.writeFileSync(notesPath, notes + '\n');
+}
 
 console.log(`Version:  ${version}`);
 console.log(`Channel:  ${preRelease ? 'pre-release' : 'stable'}`);
-console.log(`Notes:    ${notesPath}`);
+if (notesPath) {
+	console.log(`Notes:    ${notesPath}`);
+}
 console.log();
 console.log(notes);
 
