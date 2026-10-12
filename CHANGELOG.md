@@ -1,10 +1,16 @@
 # Changelog
 
-All notable changes to DB2 Workbench are documented here. The format follows [Keep a Changelog](http://keepachangelog.com/).
+All notable changes to DB2 Workbench are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 DB2 Workbench is in **beta**: settings and file formats may still change, and version numbers do not yet imply stability guarantees.
 
+Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release channel and even minor versions (0.2.x, 0.4.x) as stable releases.
+
 ## [Unreleased]
+
+## [0.1.0] - 2026-10-12
+
+First Marketplace release, published as a pre-release.
 
 ### Added
 

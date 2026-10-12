@@ -2,12 +2,19 @@ name: Package
 
 # Builds one .vsix per platform. odbc is a native module, so a package only runs on the OS and
 # architecture it was installed on: each target builds on a runner of its own kind, and the
-# --target flag tells the Marketplace which platform each .vsix serves.
+# --target flag tells the Marketplace which platform each .vsix serves. release.yml calls this workflow
+# to build the packages it publishes.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      pre-release:
+        description: Package for the Marketplace's pre-release channel.
+        type: boolean
+        default: true
 
 jobs:
   package:
@@ -48,10 +55,14 @@ jobs:
     - run: npm ci
 
     # vsce runs vscode:prepublish (compile plus the production webview bundles) before packaging.
-    # bash on every runner: Windows' default PowerShell drops the "--", so --target goes to npm and
-    # the platform name reaches vsce as a version ("Invalid version win32-x64").
-    - run: npm run build-exe -- --target ${{ matrix.target }}
+    # Builds that aren't releases (pushes, pull requests) have no inputs and package as pre-release,
+    # like npm run build-exe does locally; only a stable release passes pre-release: false.
+    - name: Package
       shell: bash
+      run: |
+        channel=--pre-release
+        if [ "${{ inputs.pre-release }}" = "false" ]; then channel=; fi
+        npx vsce package $channel --target ${{ matrix.target }}
 
     - uses: actions/upload-artifact@v4
       with:

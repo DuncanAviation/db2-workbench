@@ -1,0 +1,124 @@
+name: Release
+
+# Publishes a release to the Visual Studio Marketplace when a version tag is pushed:
+#
+#   1. check   - the tag matches package.json, has a CHANGELOG.md section, and is on main
+#   2. test    - the four test suites, run again against the tagged commit (test.yml)
+#   3. package - one .vsix per platform (package.yml), all built before any is published
+#   4. publish - waits for approval on the marketplace environment, then publishes the exact
+#                packages step 3 built and creates the GitHub Release with them attached
+#
+# Publishing signs in as a Microsoft Entra identity (a managed identity or app registration) through
+# workload identity federation: GitHub issues the job a short-lived token, which Entra trusts because the
+# identity has a federated credential for this repository's marketplace environment, so no secret is
+# stored and nothing expires. The identity is a member of the DuncanAviation publisher. Its client and
+# tenant ids (plus the subscription id, for a managed identity) are variables on the environment.
+on:
+  push:
+    tags: ['v*']
+
+# One release per tag at a time; a second push of the same tag waits rather than racing the first.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      pre-release: ${{ steps.info.outputs.pre-release }}
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        # Full history, so the tagged commit can be checked against main.
+        fetch-depth: 0
+
+    - uses: actions/setup-node@v5
+      with:
+        node-version: '22.17.0'
+
+    - id: info
+      run: node release-info.mjs
+
+    # Releases come from main, where every change has been through a pull request and its checks.
+    - name: Tagged commit is on main
+      run: |
+        if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          echo "::error::$GITHUB_REF_NAME points at a commit that is not on main."
+          exit 1
+        fi
+
+  test:
+    needs: check
+    uses: ./.github/workflows/test.yml
+
+  package:
+    needs: check
+    uses: ./.github/workflows/package.yml
+    with:
+      pre-release: ${{ needs.check.outputs.pre-release == 'true' }}
+
+  publish:
+    needs: [check, test, package]
+    runs-on: ubuntu-latest
+    # Required reviewers on this environment hold the job until someone approves it.
+    environment: marketplace
+    permissions:
+      # Creating the GitHub Release.
+      contents: write
+      # The OIDC token azure/login exchanges for the Entra identity's credential.
+      id-token: write
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-node@v5
+      with:
+        node-version: '22.17.0'
+        cache: npm
+
+    # Only for the pinned vsce. --ignore-scripts skips odbc's native install, which publishing doesn't need.
+    - run: npm ci --ignore-scripts
+
+    - id: info
+      run: node release-info.mjs
+
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: db2-workbench-*
+        path: packages
+        merge-multiple: true
+
+    # Without a subscription id this signs in at tenant level, which is all publishing needs.
+    - uses: azure/login@v2
+      with:
+        client-id: ${{ vars.AZURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        allow-no-subscriptions: true
+
+    # The id the Marketplace knows this identity by: the one to add as a member of the publisher.
+    # Printed on every run so a 401 from the publish step can be checked against the member list.
+    - name: Show the publishing identity
+      run: |
+        az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me           --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv
+
+    # One call publishes every platform's package. --skip-duplicate makes re-running this job after a
+    # partial failure safe: packages already published are skipped instead of failing the run.
+    # --pre-release makes vsce refuse a package that wasn't built as one, so the two can't disagree.
+    - name: Publish to the Marketplace
+      run: |
+        channel=
+        if [ "${{ steps.info.outputs.pre-release }}" = "true" ]; then channel=--pre-release; fi
+        npx vsce publish --azure-credential --skip-duplicate $channel --packagePath packages/*.vsix
+
+    - name: Create the GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        channel=
+        if [ "${{ steps.info.outputs.pre-release }}" = "true" ]; then channel=--prerelease; fi
+        gh release create "$GITHUB_REF_NAME" packages/*.vsix --verify-tag $channel \
+          --title "$GITHUB_REF_NAME" --notes-file "${{ steps.info.outputs.notes-file }}"

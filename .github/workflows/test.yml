@@ -3,11 +3,13 @@ name: Test
 # Runs the four test suites as parallel jobs. None of them needs a database: the extension host suite
 # runs against the fake driver (see .vscode-test.mjs). They run on Windows, the platform the extension's
 # users are on, which also lets the extension host suite open VS Code without a virtual display.
+# release.yml calls this workflow so a tag is tested again before anything is published.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   lint_and_unit:
