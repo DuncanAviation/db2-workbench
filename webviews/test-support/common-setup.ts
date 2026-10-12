@@ -1,5 +1,5 @@
 import { afterEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { installVsCodeApiStub, resetVsCodeApiStub } from './vscode-api-stub';
 import { setInitialState } from './render-webview';
 
@@ -9,6 +9,11 @@ import { setInitialState } from './render-webview';
 // vscode-api.ts calls it at import time.
 
 installVsCodeApiStub();
+
+// waitFor/findBy give up after 1s by default, which a busy CI runner can miss while it is still
+// working through something as ordinary as a MUI dialog's exit transition. A real failure still
+// fails, just later, and well inside the 20s test timeout.
+configure({ asyncUtilTimeout: 5000 });
 
 afterEach(() => {
 	// globals: false means Testing Library can't register its own automatic cleanup.
