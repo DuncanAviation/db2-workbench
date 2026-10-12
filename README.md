@@ -106,13 +106,6 @@ Export catalog metadata, or import extra metadata where the DB2 catalog is incom
 | `db2-workbench.dataEdit.*` | — | Default values for new rows on the Data tab. Also editable from the tab's Settings dialog. |
 | `db2-workbench.formatting.*` | — | SQL formatter options. Edit these from **Edit Formatting** in the Settings view for a live preview. |
 
-## Known limitations
-
-- Passwords are cleared from secret storage when the extension deactivates, so expect a prompt once per VS Code session.
-- A running statement can't be cancelled yet: the `odbc` package has no released `cancel()`.
-- Disabling an import applies to the current window only; it isn't kept across reloads.
-- SQL parsing is deliberately lightweight. Unusual statement shapes may not get autocomplete or column labels, though they still run.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for building, running and testing the extension. None of the test suites needs a database.
