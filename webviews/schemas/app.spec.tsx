@@ -198,7 +198,7 @@ describe('schemas webview', () => {
 			await openView(user);
 			await user.click(screen.getByRole('tab', { name: 'Definition' }));
 
-			expect(posted()).toEqual([{ command: 'loadViewDefinition', schema: 'SALES', table: 'ORDERS' }]);
+			expect(posted()).toEqual([{ command: 'loadViewDefinition', schema: 'SALES', table: 'ORDERS', source: 'view' }]);
 			expect(screen.getByText('Loading definition...')).toBeTruthy();
 
 			postFromHost<SchemasInboundMessage>({ command: 'viewDefinitionLoaded', schema: 'SALES', table: 'ORDERS', definition: 'select * from orders', formatted: 'SELECT\n\t*\nFROM orders' });
@@ -222,7 +222,88 @@ describe('schemas webview', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Refresh' }));
 
-			expect(posted().at(-1)).toEqual({ command: 'loadViewDefinition', schema: 'SALES', table: 'ORDERS', forceRefresh: true });
+			expect(posted().at(-1)).toEqual({ command: 'loadViewDefinition', schema: 'SALES', table: 'ORDERS', source: 'view', forceRefresh: true });
+		});
+	});
+
+	describe('materialized query tables', () => {
+		// Opening one goes through the tree, whose rows are virtualized - fake-layout gives them a viewport.
+		let layout: FakeLayoutHandle;
+
+		beforeEach(() => {
+			layout = useFakeLayout({ viewportHeight: 400, rowHeight: 34 });
+		});
+
+		afterEach(() => {
+			layout.restore();
+		});
+
+		const MQT: TreeTableEntry = {
+			connected: systemTable('SALES', 'CUSTTOT', {
+				tableType: 'M', description: 'Order totals', maintain: 'USER', refresh: 'DEFERRED', enabled: 'YES', isolation: 'CS', mqtRstDfr: 'N'
+			})
+		};
+
+		function renderWithMqt(overrides: Partial<SchemasInitialState> = {}) {
+			return renderSchemas({ tablesBySchema: { ...TABLES, SALES: [...TABLES.SALES, MQT] }, ...overrides });
+		}
+
+		it('lists an MQT under its own node, not among the tables, and opens it as a table tab', async () => {
+			let user = userEvent.setup();
+			renderWithMqt();
+
+			await user.click(screen.getByRole('button', { name: 'SALES' }));
+			expect(screen.getByRole('button', { name: 'Tables (2)' })).toBeTruthy();
+
+			await user.click(screen.getByRole('button', { name: 'Materialized Query Tables (1)' }));
+			await user.click(screen.getByRole('button', { name: 'CUSTTOT (Order totals)' }));
+
+			expect(tableTabNames()).toEqual(['CUSTTOT']);
+			let [, subTabs] = screen.getAllByRole('tablist');
+			expect(within(subTabs).getAllByRole('tab').map(tab => tab.textContent))
+				.toEqual(['Info', 'Columns', 'Definition', 'Indexes', 'Advised Indexes', 'Data']);
+		});
+
+		// The sub-tab is remembered across tabs, so a table left on Triggers would otherwise hand an MQT a tab
+		// it doesn't show.
+		it('falls back to Info when the remembered sub-tab is one an MQT does not have', async () => {
+			let user = userEvent.setup();
+			renderWithMqt({ initialSelectedTable: { schema: 'SALES', table: 'ORDERS' } });
+
+			await user.click(screen.getByRole('tab', { name: 'Triggers' }));
+			postFromHost<SchemasTreeInboundMessage>({ command: 'selectTable', schema: 'SALES', table: 'CUSTTOT' });
+
+			expect(selectedSubTab()).toBe('Info');
+		});
+
+		it('shows its MQT fields on Info, which a plain table leaves out', () => {
+			renderWithMqt({ initialSelectedTable: { schema: 'SALES', table: 'CUSTTOT' } });
+
+			expect(screen.getByText('Materialized Query Table')).toBeTruthy();
+			expect(screen.getByText('Cursor Stability (*CS)')).toBeTruthy();
+			expect(screen.getByText('DEFERRED')).toBeTruthy();
+			expect(screen.getByText('Never')).toBeTruthy();
+		});
+
+		it('a plain table has no Definition tab and no MQT fields', () => {
+			renderWithMqt({ initialSelectedTable: { schema: 'SALES', table: 'ORDERS' } });
+
+			expect(screen.queryByRole('tab', { name: 'Definition' })).toBeNull();
+			expect(screen.queryByText('Materialized Query Table')).toBeNull();
+		});
+
+		it('loads its definition from the MQT source when the Definition tab opens', async () => {
+			let user = userEvent.setup();
+			renderWithMqt({ initialSelectedTable: { schema: 'SALES', table: 'CUSTTOT' } });
+
+			await user.click(screen.getByRole('tab', { name: 'Definition' }));
+
+			expect(posted()).toEqual([{ command: 'loadViewDefinition', schema: 'SALES', table: 'CUSTTOT', source: 'mqt' }]);
+
+			postFromHost<SchemasInboundMessage>({ command: 'viewDefinitionLoaded', schema: 'SALES', table: 'CUSTTOT', definition: 'select custno from orders', formatted: 'SELECT\n\tcustno\nFROM orders' });
+
+			let editor = screen.getByRole('textbox', { name: 'Materialized query table definition' }) as HTMLTextAreaElement;
+			expect(editor.value).toBe('SELECT\n\tcustno\nFROM orders');
 		});
 	});
 

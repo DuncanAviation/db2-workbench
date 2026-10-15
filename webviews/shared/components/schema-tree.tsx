@@ -83,6 +83,12 @@ export type SchemaTreeSelection =
 interface Props {
 	tablesBySchema: Record<string, SchemaTreeEntry[]>;
 	/**
+	 * Adds a "Materialized Query Tables (n)" node under each schema, after its Tables node. An MQT is a
+	 * table in every other respect, so its rows behave exactly like table rows - same key (no kind), same
+	 * selection callbacks, in either mode. Only the node they're listed under differs.
+	 */
+	mqtsBySchema?: Record<string, SchemaTreeEntry[]>;
+	/**
 	 * Adds a "Views (n)" node under each schema, after its Tables node - `table` holds the view's name.
 	 * Single-select only: views can't be added to a diagram, so the diagram picker simply doesn't pass
 	 * this, and a multi-select tree ignores it. The filter matches views the same way it matches tables.
@@ -127,12 +133,20 @@ interface Props {
 
 type FlatRow =
 	| { type: 'schema'; schema: string; tableCount: number; expanded: boolean }
-	| { type: 'tables-node'; schema: string; tableCount: number; expanded: boolean }
+	| { type: 'tables-node'; group: TableGroup; schema: string; tableCount: number; expanded: boolean }
 	| { type: 'table'; schema: string; entry: SchemaTreeEntry }
 	| { type: 'object-node'; kind: TableKeyKind; schema: string; count: number; expanded: boolean }
 	| { type: 'object'; kind: TableKeyKind; schema: string; entry: SchemaTreeEntry };
 
-// The non-table kinds, each with its own node under a schema, in display order after Tables.
+// The nodes whose rows are tables - plain tables, and materialized query tables listed apart from them.
+type TableGroup = 'tables' | 'mqts';
+
+const TABLE_GROUP_LABELS: Record<TableGroup, string> = {
+	tables: 'Tables',
+	mqts: 'Materialized Query Tables'
+};
+
+// The non-table kinds, each with its own node under a schema, in display order after the table groups.
 const OBJECT_GROUPS: { kind: TableKeyKind; label: string }[] = [
 	{ kind: 'view', label: 'Views' },
 	{ kind: 'function', label: 'Functions' },
@@ -176,6 +190,10 @@ function flatRowKey(row: FlatRow): string {
 		return tableKeyToString(objectKey(row.kind, row.entry));
 	}
 
+	if(row.type === 'tables-node') {
+		return `${row.group}-node:${row.schema}`;
+	}
+
 	return row.type === 'object-node' ? `${row.kind}-node:${row.schema}` : `${row.type}:${row.schema}`;
 }
 
@@ -197,7 +215,7 @@ function sortEntries(entries: SchemaTreeEntry[]): SchemaTreeEntry[] {
 // A schema present in tablesBySchema doesn't necessarily have any tables - a manually added schema
 // (see the "Edit Schema List" menu) can be empty - so a schema row can expand to nothing at all, since
 // empty folders are left out.
-export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, proceduresBySchema, filterText, onFilterTextChange, selection, menuItems, loading, title, emptyMessage, resizable }: Props) {
+export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsBySchema, functionsBySchema, proceduresBySchema, filterText, onFilterTextChange, selection, menuItems, loading, title, emptyMessage, resizable }: Props) {
 	const theme = useTheme();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [collapsed, setCollapsed] = useState(false);
@@ -233,8 +251,9 @@ export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, p
 
 	const schemaNames = useMemo(() => Array.from(new Set([
 		...Object.keys(tablesBySchema),
+		...Object.keys(mqtsBySchema),
 		...objectGroups.flatMap(group => Object.keys(group.bySchema))
-	])).sort(), [tablesBySchema, objectGroups]);
+	])).sort(), [tablesBySchema, mqtsBySchema, objectGroups]);
 
 	const filter = filterText.trim().toLowerCase();
 
@@ -248,18 +267,21 @@ export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, p
 	// immediately - there's no partial-coverage gap where an unexpanded schema hasn't been searched yet.
 	const visible = useMemo(() => {
 		let tables: Record<string, SchemaTreeEntry[]> = {};
+		let mqts: Record<string, SchemaTreeEntry[]> = {};
 		let objects: Partial<Record<TableKeyKind, Record<string, SchemaTreeEntry[]>>> = {};
 		let match = (entries: SchemaTreeEntry[], matchesSchema: boolean) => matchesSchema ? entries : entries.filter(entry => matchesFilter(entry, filter));
 
 		for(let schema of schemaNames) {
 			let matchesSchema = !filter || schema.toLowerCase().includes(filter);
 			let matchedTables = match(tablesBySchema[schema] ?? [], matchesSchema);
+			let matchedMqts = match(mqtsBySchema[schema] ?? [], matchesSchema);
 			let matchedObjects = objectGroups.map(group => ({ kind: group.kind, entries: match(group.bySchema[schema] ?? [], matchesSchema) }));
 
 			// A schema whose own name matches stays visible even with no (or no matching) tables -
 			// otherwise an empty added schema would vanish the instant its name is searched for.
-			if(matchesSchema || matchedTables.length > 0 || matchedObjects.some(matched => matched.entries.length > 0)) {
+			if(matchesSchema || matchedTables.length > 0 || matchedMqts.length > 0 || matchedObjects.some(matched => matched.entries.length > 0)) {
 				tables[schema] = matchedTables;
+				mqts[schema] = matchedMqts;
 
 				for(let matched of matchedObjects) {
 					(objects[matched.kind] ??= {})[schema] = matched.entries;
@@ -267,8 +289,8 @@ export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, p
 			}
 		}
 
-		return { tables, objects };
-	}, [tablesBySchema, objectGroups, schemaNames, filter]);
+		return { tables, mqts, objects };
+	}, [tablesBySchema, mqtsBySchema, objectGroups, schemaNames, filter]);
 
 	const visibleSchemaNames = useMemo(() => Object.keys(visible.tables).sort(), [visible]);
 
@@ -288,12 +310,26 @@ export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, p
 				let tablesExpanded = filter ? !filterCollapsedOverrides.has(`tables:${schema}`) : expandedTablesNodes.has(schema);
 
 				if(entries.length > 0) {
-					rows.push({ type: 'tables-node', schema, tableCount: entries.length, expanded: tablesExpanded });
+					rows.push({ type: 'tables-node', group: 'tables', schema, tableCount: entries.length, expanded: tablesExpanded });
 				}
 
 				if(tablesExpanded) {
 					for(let entry of entries) {
 						rows.push({ type: 'table', schema, entry });
+					}
+				}
+
+				let mqts = sortEntries(visible.mqts[schema] ?? []);
+				let mqtsNodeKey = `mqts:${schema}`;
+				let mqtsExpanded = filter ? !filterCollapsedOverrides.has(mqtsNodeKey) : expandedObjectNodes.has(mqtsNodeKey);
+
+				if(mqts.length > 0) {
+					rows.push({ type: 'tables-node', group: 'mqts', schema, tableCount: mqts.length, expanded: mqtsExpanded });
+
+					if(mqtsExpanded) {
+						for(let entry of mqts) {
+							rows.push({ type: 'table', schema, entry });
+						}
 					}
 				}
 
@@ -350,7 +386,13 @@ export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, p
 		}
 	}
 
-	function toggleTablesNode(schema: string) {
+	function toggleTablesNode(group: TableGroup, schema: string) {
+		if(group === 'mqts') {
+			// Kept with the Views/Functions nodes' state - 'mqts' is no object kind, so the key can't collide.
+			toggleNodeKey(`mqts:${schema}`);
+			return;
+		}
+
 		if(filter) {
 			setFilterCollapsedOverrides(prev => toggleInSet(prev, `tables:${schema}`));
 		} else {
@@ -359,8 +401,10 @@ export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, p
 	}
 
 	function toggleObjectNode(kind: TableKeyKind, schema: string) {
-		let nodeKey = `${kind}:${schema}`;
+		toggleNodeKey(`${kind}:${schema}`);
+	}
 
+	function toggleNodeKey(nodeKey: string) {
 		if(filter) {
 			setFilterCollapsedOverrides(prev => toggleInSet(prev, nodeKey));
 		} else {
@@ -577,11 +621,11 @@ export function SchemaTree({ tablesBySchema, viewsBySchema, functionsBySchema, p
 
 		if(row.type === 'tables-node') {
 			return (
-				<ListItemButton onClick={() => toggleTablesNode(row.schema)} sx={{ py: 0.5, pl: 3 }}>
+				<ListItemButton onClick={() => toggleTablesNode(row.group, row.schema)} sx={{ py: 0.5, pl: 3 }}>
 					<ListItemIcon sx={{ minWidth: 24 }}>
 						{row.expanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
 					</ListItemIcon>
-					<ListItemText primary={`Tables (${row.tableCount})`} />
+					<ListItemText primary={`${TABLE_GROUP_LABELS[row.group]} (${row.tableCount})`} />
 				</ListItemButton>
 			);
 		}

@@ -22,6 +22,8 @@ import { DataEditSettings } from '../utils/data-edit-defaults.js';
 export interface SchemasSystemTable {
 	schema: string;
 	name: string;
+	/** See SystemTable.tableType - 'M' is a materialized query table. */
+	tableType: string;
 	description: string;
 	remarks: string;
 	dbName: string;
@@ -38,8 +40,8 @@ export interface SchemasSystemTable {
 	enabled: string;
 	maintain: string;
 	refresh: string;
-	refreshTimestamp: string;
-	mqtDef: string;
+	/** Absent unless this is a materialized query table that has been refreshed. */
+	refreshTimestamp?: string;
 	isolation: string;
 	partTable: string;
 	definer: string;
@@ -305,11 +307,14 @@ export interface DeleteIndexAdviceMessage {
 
 // A view's SQL isn't part of SchemasInitialState (or of SchemasSystemView) - it can run to 10K characters a
 // view, so the Definition tab loads it when opened. Carries `table` (the view's name) like every other
-// tab-scoped message, so the reply routes through SchemasInboundMessage the same way.
+// tab-scoped message, so the reply routes through SchemasInboundMessage the same way. A materialized query
+// table's Definition tab sends it too, with `source: 'mqt'` - the same tab over SYSTABLES.MQTDEF.
 export interface LoadViewDefinitionMessage {
 	command: 'loadViewDefinition';
 	schema: string;
 	table: string;
+	/** Where the definition is read from - a view's SYSVIEWS row when absent. */
+	source?: 'view' | 'mqt';
 	/** Bypasses the cached definition - the Definition tab's Refresh action. */
 	forceRefresh?: boolean;
 }

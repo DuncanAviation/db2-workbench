@@ -10,6 +10,8 @@ import { schemasVsCodeApi } from '../vscode-api';
 
 interface Props {
 	view: { schema: string; name: string };
+	/** 'mqt' shows a materialized query table's select statement instead of a view's - see LoadViewDefinitionMessage. */
+	source?: 'view' | 'mqt';
 }
 
 type DefinitionMode = 'formatted' | 'raw';
@@ -17,7 +19,7 @@ type DefinitionMode = 'formatted' | 'raw';
 // A view's SQL, loaded when the tab opens (it isn't part of the tree's data - see
 // LoadViewDefinitionMessage). The host sends both the text SYSVIEWS stores, which is usually one long
 // line, and a copy run through the SQL formatter; formatted is the default, raw is a click away.
-export function ViewDefinitionTab({ view }: Props) {
+export function ViewDefinitionTab({ view, source = 'view' }: Props) {
 	const [definition, setDefinition] = useState<{ raw: string; formatted: string } | null>(null);
 	const [error, setError] = useState<DbErrorUtils.SerializedError | null>(null);
 	const [mode, setMode] = useState<DefinitionMode>('formatted');
@@ -38,20 +40,20 @@ export function ViewDefinitionTab({ view }: Props) {
 		}
 
 		window.addEventListener('message', onMessage);
-		schemasVsCodeApi.postMessage({ command: 'loadViewDefinition', schema: view.schema, table: view.name });
+		schemasVsCodeApi.postMessage({ command: 'loadViewDefinition', schema: view.schema, table: view.name, source });
 		return () => window.removeEventListener('message', onMessage);
-	}, [view.schema, view.name]);
+	}, [view.schema, view.name, source]);
 
 	function handleRefresh() {
 		setDefinition(null);
 		setError(null);
-		schemasVsCodeApi.postMessage({ command: 'loadViewDefinition', schema: view.schema, table: view.name, forceRefresh: true });
+		schemasVsCodeApi.postMessage({ command: 'loadViewDefinition', schema: view.schema, table: view.name, source, forceRefresh: true });
 	}
 
 	if (error) {
 		return (
 			<Stack sx={{ p: 2 }}>
-				<SqlErrorDisplay error={error} label="Failed to load the view definition" />
+				<SqlErrorDisplay error={error} label={source === 'mqt' ? 'Failed to load the materialized query table definition' : 'Failed to load the view definition'} />
 			</Stack>
 		);
 	}
@@ -79,7 +81,7 @@ export function ViewDefinitionTab({ view }: Props) {
 				<ButtonGroup actions={[{ label: 'Refresh', onClick: handleRefresh }]} />
 			</Stack>
 
-			<SourceEditor aria-label="View definition" value={text} readOnly copyable />
+			<SourceEditor aria-label={source === 'mqt' ? 'Materialized query table definition' : 'View definition'} value={text} readOnly copyable />
 		</Stack>
 	);
 }

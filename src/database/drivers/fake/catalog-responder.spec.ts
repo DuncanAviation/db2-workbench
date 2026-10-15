@@ -71,7 +71,18 @@ describe('CatalogResponder.respond', () => {
 
 	it('returns only library-list tables when the table list is joined to the library list', () => {
 		let rows = <Record<string, unknown>[]>responder.respond('select sys_dname, sys_tname from qsys2.systables join qsys2.library_list_info on system_schema_name = sys_dname');
-		expect(rows.map(row => row['SYS_TNAME'])).to.deep.equal(['CUSTOMER', 'ORDERS', 'SHIPMENT', 'ORDNOTE']);
+		expect(rows.map(row => row['SYS_TNAME'])).to.deep.equal(['CUSTOMER', 'ORDERS', 'SHIPMENT', 'ORDNOTE', 'CUSTTOT']);
+	});
+
+	it('types a materialized query table M, and answers its definition on its own', () => {
+		let rows = <Record<string, unknown>[]>responder.respond('select sys_dname, sys_tname, type from qsys2.systables where sys_dname in (?)', ['SALES']);
+		expect(rows.filter(row => row['TYPE'] === 'M').map(row => row['SYS_TNAME'])).to.deep.equal(['CUSTTOT']);
+
+		let definition = <Record<string, unknown>[]>responder.respond('select mqtdef from qsys2.systables where sys_dname = ? and sys_tname = ? and type = \'M\'', ['SALES', 'CUSTTOT']);
+		expect(definition).to.deep.equal([{ MQTDEF: 'SELECT CUSTNO, COUNT(*) AS ORDCNT FROM SALES.ORDERS GROUP BY CUSTNO' }]);
+
+		let notAnMqt = <Record<string, unknown>[]>responder.respond('select mqtdef from qsys2.systables where sys_dname = ? and sys_tname = ? and type = \'M\'', ['SALES', 'ORDERS']);
+		expect(notAnMqt).to.deep.equal([]);
 	});
 
 	it('returns a named schema\'s tables even when it is off the library list', () => {

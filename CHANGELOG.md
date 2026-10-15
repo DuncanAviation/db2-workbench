@@ -8,6 +8,11 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 
 ## [Unreleased]
 
+### Added
+
+- **Materialized query tables in the schema browser.** MQTs are listed under their own "Materialized Query Tables" node in each schema and open with the table tabs that apply to them (Columns, Indexes, Advised Indexes, Data), plus a Definition tab showing the select statement the MQT was created from. The Info tab shows how the MQT is maintained and refreshed, when it was last refreshed, and its isolation level.
+- Materialized query tables are offered by content assist and resolved by View Table Details, the same as tables.
+
 ## [0.1.0] - 2026-10-12
 
 First Marketplace release, published as a pre-release.

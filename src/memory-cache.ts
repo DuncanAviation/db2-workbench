@@ -220,7 +220,16 @@ export class MemoryCache {
 	// Cached per view. `undefined` from the query (no such view) is cached as '' so it isn't re-queried,
 	// and a failed lookup caches nothing (see load()). forceRefresh is the Definition tab's Refresh.
 	async getViewDefinition(options: CatalogQueries.GetViewDefinitionOptions & {forceRefresh?: boolean}): Promise<string> {
-		let key = await this.getCacheKey(options, `${MemoryCache.Keys.SYSTEM_VIEW_DEFINITIONS}.${options.schema}.${options.view}`.toLowerCase());
+		return this.loadDefinition(options, `${MemoryCache.Keys.SYSTEM_VIEW_DEFINITIONS}.${options.schema}.${options.view}`, () => this.extension.catalogQueries.getViewDefinition(options));
+	}
+
+	// A materialized query table's select statement, cached the same way as a view's.
+	async getMqtDefinition(options: CatalogQueries.GetMqtDefinitionOptions & {forceRefresh?: boolean}): Promise<string> {
+		return this.loadDefinition(options, `${MemoryCache.Keys.SYSTEM_MQT_DEFINITIONS}.${options.schema}.${options.table}`, () => this.extension.catalogQueries.getMqtDefinition(options));
+	}
+
+	private async loadDefinition(options: DbConnections.CommonListOptions & {forceRefresh?: boolean}, cacheKey: string, fetch: () => Promise<string | undefined>): Promise<string> {
+		let key = await this.getCacheKey(options, cacheKey.toLowerCase());
 
 		if(options.forceRefresh) {
 			this.cacheMap.delete(key);
@@ -232,7 +241,7 @@ export class MemoryCache {
 				let definition = <string | undefined>await this.get(key);
 
 				if(definition == null) {
-					definition = await this.extension.catalogQueries.getViewDefinition(options) ?? '';
+					definition = await fetch() ?? '';
 					this.set(key, definition);
 				}
 
@@ -801,6 +810,7 @@ export namespace MemoryCache {
 		SYSTEM_TABLES = 'system-tables',
 		SYSTEM_VIEWS = 'system-views',
 		SYSTEM_VIEW_DEFINITIONS = 'system-view-definitions',
+		SYSTEM_MQT_DEFINITIONS = 'system-mqt-definitions',
 		SYSTEM_ROUTINES = 'system-routines',
 		SYSTEM_ROUTINE_PARAMETERS = 'system-routine-parameters',
 		SYSTEM_ROUTINE_DETAILS = 'system-routine-details',

@@ -43,9 +43,14 @@ export class CatalogQueries {
 		let sql: string;
 		let parameters: (Parameter)[];
 
-		let columns = `select sys_dname, sys_tname, label, remarks, dbname, alteredts, filetype, location, tbdbname, ` +
+		// Materialized query tables ('M') are listed with the tables: an MQT is a physical file with columns,
+		// keys, indexes and rows like any table, so every per-table tab and lookup serves it unchanged. TYPE
+		// tells them apart for the tree, which shows MQTs under a node of their own. MQTDEF (a DBCLOB of up to
+		// 2M characters) is left out - it is only ever read one MQT at a time (see getMqtDefinition).
+		// TYPE is qualified because LIBRARY_LIST_INFO, joined below, has a TYPE column of its own.
+		let columns = `select sys_dname, sys_tname, systables.type, label, remarks, dbname, alteredts, filetype, location, tbdbname, ` +
 			`tbname, tbmember, systable, selectomit, insertable, iaspnumber, enabled, maintain, refresh, ` +
-			`refreshdts, mqtdef, isolation, part_table, definer, mqtrstdfr, decfltrnd, control, temporalty, ` +
+			`refreshdts, isolation, part_table, definer, mqtrstdfr, decfltrnd, control, temporalty, ` +
 			`droprule `;
 
 		let schemas: string[] = options?.schemas?.length ? <string[]>options.schemas : (StringUtils.isNotBlank(options?.schema) ? [<string>options.schema] : []);
@@ -54,7 +59,7 @@ export class CatalogQueries {
 			sql = columns +
 				`from qsys2.systables ` +
 				`join qsys2.library_list_info on system_schema_name = sys_dname ` +
-				`and systables.type in ('T', 'P') `;
+				`and systables.type in ('T', 'P', 'M') `;
 
 			parameters = [];
 		} else {
@@ -65,7 +70,7 @@ export class CatalogQueries {
 			sql = columns +
 				`from qsys2.systables ` +
 				`where sys_dname in (${schemas.map(() => '?').join(', ')}) ` +
-				`and systables.type in ('T', 'P') `;
+				`and systables.type in ('T', 'P', 'M') `;
 
 			parameters = schemas.map(schema => schema.toUpperCase());
 		}
@@ -81,6 +86,7 @@ export class CatalogQueries {
 			return <SystemTable>{
 				schema: StringUtils.trim(<string>row['SYS_DNAME'], {removeDuplicateWhiteSpace: true}),
 				name: StringUtils.trim(<string>row['SYS_TNAME'], {removeDuplicateWhiteSpace: true}),
+				tableType: StringUtils.trim(<string>row['TYPE'], {removeDuplicateWhiteSpace: true}),
 				description: StringUtils.trim(<string>row['LABEL'], {removeDuplicateWhiteSpace: true}),
 				remarks: StringUtils.trim(<string>row['REMARKS'], {removeDuplicateWhiteSpace: true}),
 				dbName: StringUtils.trim(<string>row['DBNAME'], {removeDuplicateWhiteSpace: true}),
@@ -97,8 +103,8 @@ export class CatalogQueries {
 				enabled: StringUtils.trim(<string>row['ENABLED'], {removeDuplicateWhiteSpace: true}),
 				maintain: StringUtils.trim(<string>row['MAINTAIN'], {removeDuplicateWhiteSpace: true}),
 				refresh: StringUtils.trim(<string>row['REFRESH'], {removeDuplicateWhiteSpace: true}),
-				refreshTimestamp: new Date(<string>row['REFRESHDTS']),
-				mqtDef: StringUtils.trim(<string>row['MQTDEF'], {removeDuplicateWhiteSpace: true}),
+				// new Date(null) would be 1970, not "never refreshed".
+				refreshTimestamp: row['REFRESHDTS'] == null ? undefined : new Date(<string>row['REFRESHDTS']),
 				isolation: StringUtils.trim(<string>row['ISOLATION'], {removeDuplicateWhiteSpace: true}),
 				partTable: StringUtils.trim(<string>row['PART_TABLE'], {removeDuplicateWhiteSpace: true}),
 				definer: StringUtils.trim(<string>row['DEFINER'], {removeDuplicateWhiteSpace: true}),
@@ -233,6 +239,20 @@ export class CatalogQueries {
 		let text = <string | undefined>results[0]?.['TEXT'];
 		return text?.trim();
 	}
+
+	// One materialized query table's select statement (SYSTABLES.MQTDEF) - getViewDefinition's counterpart,
+	// read on demand for the same reason.
+	async getMqtDefinition(options: CatalogQueries.GetMqtDefinitionOptions): Promise<string | undefined> {
+		let results = await runCatalogLookup(this.extension, {
+			key: options.key,
+			configId: options.configId,
+			sql: `select mqtdef from qsys2.systables where sys_dname = ? and sys_tname = ? and type = 'M'`,
+			parameters: [options.schema.toUpperCase(), options.table.toUpperCase()]
+		});
+
+		let text = <string | undefined>results[0]?.['MQTDEF'];
+		return text?.trim();
+	}
 }
 
 export namespace CatalogQueries {
@@ -259,5 +279,10 @@ export namespace CatalogQueries {
 	export interface GetViewDefinitionOptions extends DbConnections.CommonListOptions {
 		schema: string;
 		view: string;
+	}
+
+	export interface GetMqtDefinitionOptions extends DbConnections.CommonListOptions {
+		schema: string;
+		table: string;
 	}
 }

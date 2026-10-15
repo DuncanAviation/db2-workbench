@@ -162,7 +162,7 @@ export class SchemasProvider {
 
 		panel.webview.onDidReceiveMessage(async (message: SchemasOutboundMessage) => {
 			if(message.command === 'loadViewDefinition') {
-				await this.postViewDefinition(panel, key, config.id, message.schema, message.table, message.forceRefresh);
+				await this.postViewDefinition(panel, key, config.id, message.schema, message.table, message.source ?? 'view', message.forceRefresh);
 			} else if(message.command === 'loadRoutineParams') {
 				await this.postRoutineParams(panel, key, config.id, message.schema, message.table, message.forceRefresh);
 			} else if(message.command === 'loadRoutineDetail') {
@@ -432,19 +432,22 @@ export class SchemasProvider {
 		return tables.some(candidate => StringUtils.equalsIgnoreCase(candidate.name, table)) || await this.connectedViewExists(key, configId, schema, table);
 	}
 
-	// Views never get a SystemTable entry (getTables only lists T/P types), so they're looked up on their
+	// Views never get a SystemTable entry (getTables only lists T/P/M types), so they're looked up on their
 	// own - also what tells postTableData to page a view without an RRN fallback key.
 	private async connectedViewExists(key: string, configId: string, schema: string, view: string): Promise<boolean> {
 		let views = await this.extension.memoryCache.getViewsForSchemas({key: key, configId: configId}, [schema]);
 		return views.some(candidate => StringUtils.equalsIgnoreCase(candidate.name, view));
 	}
 
-	// The Definition tab: the raw SYSVIEWS text plus a formatted copy, formatted here rather than in the
-	// webview since the formatter and the user's formatting settings both live on the host. A definition
-	// the formatter can't handle is shown raw in both places rather than failing the tab.
-	private async postViewDefinition(panel: vscode.WebviewPanel, key: string, configId: string, schema: string, view: string, forceRefresh?: boolean): Promise<void> {
+	// The Definition tab: the raw SYSVIEWS text (or a materialized query table's SYSTABLES.MQTDEF) plus a
+	// formatted copy, formatted here rather than in the webview since the formatter and the user's formatting
+	// settings both live on the host. A definition the formatter can't handle is shown raw in both places
+	// rather than failing the tab.
+	private async postViewDefinition(panel: vscode.WebviewPanel, key: string, configId: string, schema: string, view: string, source: 'view' | 'mqt', forceRefresh?: boolean): Promise<void> {
 		try {
-			let definition = await this.extension.memoryCache.getViewDefinition({key: key, configId: configId, schema: schema, view: view, forceRefresh: forceRefresh});
+			let definition = source === 'mqt'
+				? await this.extension.memoryCache.getMqtDefinition({key: key, configId: configId, schema: schema, table: view, forceRefresh: forceRefresh})
+				: await this.extension.memoryCache.getViewDefinition({key: key, configId: configId, schema: schema, view: view, forceRefresh: forceRefresh});
 			let formatted = this.formatDefinition(definition);
 			panel.webview.postMessage(<ViewDefinitionLoadedMessage>{command: 'viewDefinitionLoaded', schema: schema, table: view, definition: definition, formatted: formatted});
 		} catch(error) {

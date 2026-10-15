@@ -145,6 +145,22 @@ export const SAMPLE_DATABASE = defineFakeDatabase({
 						{ ORDNO: 1001, NOTETX: 'Split shipment', NOTEBY: 'ORDCLERK' },
 						{ ORDNO: 1002, NOTETX: 'Hold for credit check', NOTEBY: 'QSECOFR' }
 					]
+				},
+				{
+					// A materialized query table: a table in every catalog but SYSTABLES.TYPE, where it is 'M'
+					// with its select in MQTDEF - which is what lists it under its own node in the schema tree
+					// and gives it a Definition tab.
+					name: 'CUSTTOT',
+					description: 'Order totals by customer',
+					mqtDefinition: 'SELECT CUSTNO, COUNT(*) AS ORDCNT FROM SALES.ORDERS GROUP BY CUSTNO',
+					columns: [
+						{ systemName: 'CUSTNO', sqlName: 'CUSTOMER_NUMBER', dataType: 'INTEGER', length: 4 },
+						{ systemName: 'ORDCNT', sqlName: 'ORDER_COUNT', dataType: 'INTEGER', length: 4 }
+					],
+					rows: [
+						{ CUSTNO: 1, ORDCNT: 2 },
+						{ CUSTNO: 2, ORDCNT: 1 }
+					]
 				}
 			],
 			views: [
