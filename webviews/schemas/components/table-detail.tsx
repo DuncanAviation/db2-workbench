@@ -1,6 +1,7 @@
 import { MouseEvent, useState } from 'react';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { Box, IconButton, Menu, MenuItem, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { SystemTable } from '../../../src/models/system-table.js';
 import type { TreeTableEntry } from '../../../src/webview-messages/schemas-messages';
 import type { PendingDataStatement } from '../pending-statement';
 import { ImportBadge } from '../../shared/components/import-badge';
@@ -14,6 +15,7 @@ import { InfoTab } from './info-tab';
 import { TableDataTab } from './table-data-tab';
 import { TableKeysTab } from './table-keys-tab';
 import { TriggersTab } from './triggers-tab';
+import { ViewDefinitionTab } from './view-definition-tab';
 
 // Which badge the header shows - the two cases need different explanations even though the badge
 // label itself doesn't, shown as a hover tooltip on the badge rather than a click-to-open dialog.
@@ -64,12 +66,14 @@ interface Props {
 
 // One level deeper than strictly needed for v1's sub-tabs, so future categories can be added as
 // sibling tabs without restructuring this component.
-// 'definition' is a view's and a routine's tab (see ViewDetail, RoutineDetail), 'parameters'/'resultColumns'/
+// 'definition' is a view's, a routine's and a materialized query table's tab (see ViewDetail, RoutineDetail), 'parameters'/'resultColumns'/
 // 'programSource' a routine's - one shared key type, since app.tsx remembers a single selected sub-tab across every open
 // tab, whatever its kind.
 export type SubTabKey = 'info' | 'definition' | 'parameters' | 'resultColumns' | 'programSource' | 'columns' | 'tableKeys' | 'foreignKeys' | 'indexes' | 'advisedIndexes' | 'triggers' | 'data';
 
 const NOT_TABLE_SUB_TABS: readonly SubTabKey[] = ['definition', 'parameters', 'resultColumns', 'programSource'];
+
+const NOT_MQT_SUB_TABS: readonly SubTabKey[] = ['tableKeys', 'foreignKeys', 'triggers'];
 
 export function TableDetail({ entry, currentSortSequence, currentSortSequenceLibrary, editMode, onEnterEditMode, onCancelEditClick, isRunning, pendingStatements, onUpsertStatement, onDeleteStatement, runCompletionNotice, onOpenExport, onDisableImportedChange, onEnableImportedChange, subTab, onSubTabChange }: Props) {
 	const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
@@ -135,8 +139,15 @@ export function TableDetail({ entry, currentSortSequence, currentSortSequenceLib
 	// table) - fall back to Info for display only, without touching the remembered value itself, so
 	// switching to another connected table still lands back on Advised Indexes/Triggers/Data as expected.
 	const requiresConnected = subTab === 'advisedIndexes' || subTab === 'triggers' || subTab === 'data';
-	// Same fallback for a view or function tab remembered from one that was open before this table.
-	const displaySubTab: SubTabKey = (requiresConnected && !connected) || NOT_TABLE_SUB_TABS.includes(subTab) ? 'info' : subTab;
+	// A materialized query table gets one more tab - the select statement it was created from - and loses the
+	// three that never have anything to show for one: its rows come from its select, so it has no constraints
+	// or triggers of its own.
+	const isMqt = connected != null && SystemTable.isMqt(connected);
+	// Same fallback for a view or function tab remembered from one that was open before this table - except
+	// Definition, which an MQT has too - and for a table-only tab remembered when an MQT opens.
+	const notThisTable = (NOT_TABLE_SUB_TABS.includes(subTab) && !(isMqt && subTab === 'definition'))
+		|| (isMqt && NOT_MQT_SUB_TABS.includes(subTab));
+	const displaySubTab: SubTabKey = (requiresConnected && !connected) || notThisTable ? 'info' : subTab;
 
 	function handleSubTabChange(value: SubTabKey) {
 		onSubTabChange(value);
@@ -170,17 +181,19 @@ export function TableDetail({ entry, currentSortSequence, currentSortSequenceLib
 			<Tabs value={displaySubTab} onChange={(_, value: SubTabKey) => handleSubTabChange(value)}>
 				<Tab label="Info" value="info" />
 				<Tab label="Columns" value="columns" />
-				<Tab label="Table Keys" value="tableKeys" />
-				<Tab label="Foreign Keys" value="foreignKeys" />
+				{isMqt && <Tab label="Definition" value="definition" />}
+				{!isMqt && <Tab label="Table Keys" value="tableKeys" />}
+				{!isMqt && <Tab label="Foreign Keys" value="foreignKeys" />}
 				<Tab label="Indexes" value="indexes" />
 				{connected && <Tab label="Advised Indexes" value="advisedIndexes" />}
-				{connected && <Tab label="Triggers" value="triggers" />}
+				{connected && !isMqt && <Tab label="Triggers" value="triggers" />}
 				{connected && <Tab label="Data" value="data" />}
 			</Tabs>
 
 			<Box sx={{ flexGrow: 1, minHeight: 0, overflow: 'auto' }}>
 				{displaySubTab === 'info' && (connected ? <InfoTab table={connected} /> : <ImportedInfoTab imported={imported} />)}
 				{displaySubTab === 'columns' && <ColumnsTab key={importedFingerprint} table={minimalTable} hasImportedData={hasImportedData} />}
+				{isMqt && displaySubTab === 'definition' && <ViewDefinitionTab view={minimalTable} source="mqt" />}
 				{displaySubTab === 'tableKeys' && <TableKeysTab key={importedFingerprint} table={minimalTable} hasImportedData={hasImportedData} />}
 				{displaySubTab === 'foreignKeys' && <ForeignKeysTab key={importedFingerprint} table={minimalTable} hasImportedData={hasImportedData} />}
 				{displaySubTab === 'indexes' && <IndexesTab key={importedFingerprint} table={minimalTable} hasImportedData={hasImportedData} />}

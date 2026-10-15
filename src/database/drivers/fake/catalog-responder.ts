@@ -187,8 +187,16 @@ export class CatalogResponder {
 	 * CatalogQueries.listTables has two shapes: an eager one joined to LIBRARY_LIST_INFO (every table
 	 * on the library list) and a targeted one filtered by `sys_dname in (?, ...)`. The parameters are
 	 * schema names in the second case, so they're matched by name rather than through readTargets.
+	 * Both list materialized query tables along with the tables. CatalogQueries.getMqtDefinition selects
+	 * MQTDEF alone for one MQT, bound [schema, table].
 	 */
 	private buildTables(normalized: string, values: string[]): Record<string, unknown>[] {
+		if(normalized.startsWith('select mqtdef from')) {
+			let table = this.database.schemas.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[0]))
+				?.tables.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[1]));
+			return table?.mqtDefinition != null ? [{ MQTDEF: table.mqtDefinition }] : [];
+		}
+
 		let schemas = normalized.includes('library_list_info')
 			? this.database.schemas.filter(schema => schema.onLibraryList)
 			: this.database.schemas.filter(schema => values.some(value => StringUtils.equalsIgnoreCase(value, schema.name)));
@@ -196,10 +204,14 @@ export class CatalogResponder {
 		return schemas.flatMap(schema => schema.tables.map(table => CatalogResponder.buildTableRow(schema, table)));
 	}
 
+	// The MQT columns are null for anything else, as SYSTABLES' are.
 	private static buildTableRow(schema: FakeSchema, table: FakeTable): Record<string, unknown> {
+		let isMqt = table.mqtDefinition != null;
+
 		return {
 			SYS_DNAME: schema.name,
 			SYS_TNAME: table.name,
+			TYPE: isMqt ? 'M' : 'T',
 			LABEL: table.description,
 			REMARKS: table.remarks,
 			DBNAME: schema.name,
@@ -213,15 +225,14 @@ export class CatalogResponder {
 			SELECTOMIT: 'N',
 			INSERTABLE: 'Y',
 			IASPNUMBER: 0,
-			ENABLED: 'Y',
-			MAINTAIN: '',
-			REFRESH: '',
-			REFRESHDTS: '2026-01-01 08:00:00.000000',
-			MQTDEF: '',
-			ISOLATION: '',
-			PART_TABLE: 'N',
+			ENABLED: isMqt ? 'YES' : null,
+			MAINTAIN: isMqt ? 'USER' : null,
+			REFRESH: isMqt ? 'DEFERRED' : null,
+			REFRESHDTS: isMqt ? '2026-01-02 06:00:00.000000' : null,
+			ISOLATION: isMqt ? 'CS' : null,
+			PART_TABLE: 'NO',
 			DEFINER: 'QSECOFR',
-			MQTRSTDFR: '',
+			MQTRSTDFR: isMqt ? 'N' : null,
 			DECFLTRND: '',
 			CONTROL: '',
 			TEMPORALTY: '',

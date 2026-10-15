@@ -3,6 +3,7 @@ import { defineFakeDatabase } from '../database/drivers/fake/fake-database.js';
 import { RoutineQueries } from '../database/queries/routine-queries.js';
 import { DbConnectionEvent } from '../events/db-connection-event.js';
 import { extension } from '../extension.js';
+import { SystemTable } from '../models/system-table.js';
 import { TestSupport } from './test-support.js';
 
 /**
@@ -520,7 +521,7 @@ suite('MemoryCache against the fake driver', () => {
 
 			let relations = await extension.memoryCache.getRelations({ key: key, configId: TestSupport.CONFIG_ID, schema: 'SALES' });
 			assert.deepStrictEqual(relations.map(relation => `${relation.name}:${relation.kind}`), [
-				'CUSTOMER:table', 'ORDERS:table', 'SHIPMENT:table', 'ORDNOTE:table', 'CUSTORD:view'
+				'CUSTOMER:table', 'ORDERS:table', 'SHIPMENT:table', 'ORDNOTE:table', 'CUSTTOT:table', 'CUSTORD:view'
 			]);
 
 			let columns = await extension.memoryCache.getColumns({ key: key, configId: TestSupport.CONFIG_ID, tables: { table: 'CUSTORD' } });
@@ -584,6 +585,54 @@ suite('MemoryCache against the fake driver', () => {
 
 			await extension.memoryCache.getViewDefinition({ ...options, forceRefresh: true });
 			assert.strictEqual(recorder.matching(/select text from qsys2\.sysviews/).length, 2);
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	// MQTDEF is left out of the table list, so the Definition tab reads it the way a view's is read.
+	test('a materialized query table\'s definition is read on its own, cached, and re-read on a forced refresh', async () => {
+		let key = 'test://cache-mqt-definition';
+		let recorder = TestSupport.recordStatements();
+
+		try {
+			await openSession(key, recorder);
+			let options = { key: key, configId: TestSupport.CONFIG_ID, schema: 'SALES', table: 'CUSTTOT' };
+
+			let definition = await extension.memoryCache.getMqtDefinition(options);
+			assert.strictEqual(definition, 'SELECT CUSTNO, COUNT(*) AS ORDCNT FROM SALES.ORDERS GROUP BY CUSTNO');
+
+			await extension.memoryCache.getMqtDefinition(options);
+			assert.strictEqual(recorder.matching(/select mqtdef from qsys2\.systables/).length, 1);
+
+			await extension.memoryCache.getMqtDefinition({ ...options, forceRefresh: true });
+			assert.strictEqual(recorder.matching(/select mqtdef from qsys2\.systables/).length, 2);
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	// An MQT is listed as a table - so every per-table tab, content assist and View Table Details serve it -
+	// and only its type tells the tree to show it under its own node.
+	test('materialized query tables are listed with the tables, typed M', async () => {
+		let key = 'test://cache-mqts';
+		let recorder = TestSupport.recordStatements();
+
+		try {
+			await openSession(key, recorder);
+
+			let tables = await extension.memoryCache.getTables({ key: key, configId: TestSupport.CONFIG_ID, schema: 'SALES' });
+			let mqt = tables.find(table => table.name === 'CUSTTOT');
+			assert.ok(mqt, 'CUSTTOT should be listed with the tables');
+			assert.ok(SystemTable.isMqt(mqt));
+			assert.strictEqual(mqt.maintain, 'USER');
+			assert.ok(tables.filter(table => table.name !== 'CUSTTOT').every(table => !SystemTable.isMqt(table)));
+
+			let relations = await extension.memoryCache.getRelations({ key: key, configId: TestSupport.CONFIG_ID });
+			assert.ok(relations.some(relation => relation.schema === 'SALES' && relation.name === 'CUSTTOT' && relation.kind === 'table'));
+
+			let columns = await extension.memoryCache.getColumns({ key: key, configId: TestSupport.CONFIG_ID, tables: { schema: 'SALES', table: 'CUSTTOT' } });
+			assert.deepStrictEqual(columns.map(column => column.systemName), ['CUSTNO', 'ORDCNT']);
 		} finally {
 			await TestSupport.closeSessions(key);
 		}

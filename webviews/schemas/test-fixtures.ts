@@ -10,7 +10,7 @@ export function systemTable(schema: string, name: string, overrides: Partial<Sch
 	return {
 		schema, name, description: '', remarks: '', dbName: name, alteredTimestamp: '2026-09-01T00:00:00.000Z', fileType: 'D', location: '',
 		tbDbName: schema, tbName: name, tbMember: '', sysTable: 'N', selectOmit: 'N', insertable: 'Y', iaspNumber: 0, enabled: 'Y',
-		maintain: '', refresh: '', refreshTimestamp: '', mqtDef: '', isolation: '', partTable: '', definer: '', mqtRstDfr: '',
+		tableType: 'T', maintain: '', refresh: '', isolation: '', partTable: '', definer: '', mqtRstDfr: '',
 		decFltRnd: '', control: '', temporalType: '', dropRule: '',
 		...overrides
 	};

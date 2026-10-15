@@ -65,6 +65,9 @@ export interface FakeTable {
 	/** The table's data, as row objects keyed by column system name - what a SELECT against this
 	 * table returns (see FakeDriver's table-select handling). */
 	rows: Record<string, unknown>[];
+	/** Set only for a materialized query table: SYSTABLES.MQTDEF, the select it was created from. Its
+	 * presence is what makes the table's SYSTABLES row type 'M'. */
+	mqtDefinition?: string;
 }
 
 /**
@@ -325,7 +328,8 @@ function defineTable(input: Partial<FakeTable>): FakeTable {
 		indexes: ArrayUtils.toArray(input.indexes).map(index => defineIndex(<Partial<FakeIndex>>index)),
 		advisedIndexes: ArrayUtils.toArray(input.advisedIndexes).map((advice, position) => defineAdvisedIndex(<Partial<FakeAdvisedIndex>>advice, position)),
 		triggers: ArrayUtils.toArray(input.triggers).map((trigger, position) => defineTrigger(<Partial<FakeTrigger>>trigger, position)),
-		rows: <Record<string, unknown>[]>ArrayUtils.toArray(input.rows)
+		rows: <Record<string, unknown>[]>ArrayUtils.toArray(input.rows),
+		...(input.mqtDefinition != null ? { mqtDefinition: input.mqtDefinition } : {})
 	};
 }
 

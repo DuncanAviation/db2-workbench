@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack, Typography } from '@mui/material';
 import { StringUtils } from '../../src/utils/string-utils.js';
+import { SystemTable } from '../../src/models/system-table.js';
 import type { SchemaBrowserPanel, SchemaImportReport, SchemaImportSummary, SchemasSchemaListEntry, SchemasSystemRoutine, SchemasSystemView, SchemasTreeInboundMessage, SaveSqlImportRequest, SqlImportConnectionTarget, SqlImportMappings, SqlImportRunResult, SqlImportStatementInput, TreeTableEntry } from '../../src/webview-messages/schemas-messages';
 import type { DbErrorUtils } from '../../src/utils/db-error-utils';
 import type { SchemaImportErrorUtils } from '../../src/utils/schema-import-error-utils';
@@ -168,17 +169,28 @@ export function App() {
 	// The shared tree takes a flat {schema, table, description} row rather than a TreeTableEntry, so
 	// connected-vs-imported (and SchemasSystemTable's dozen DB2 columns) stay this bundle's concern -
 	// see SchemaTreeEntry. getEntryKey is what resolves which side of an entry supplies the identity.
-	const treeTablesBySchema = useMemo(() => {
-		let mapped: Record<string, SchemaTreeEntry[]> = {};
+	// Materialized query tables are table entries like any other - they open the same TableDetail - and are
+	// only split out here, so the tree can list them under a node of their own.
+	const { treeTablesBySchema, treeMqtsBySchema } = useMemo(() => {
+		let tables: Record<string, SchemaTreeEntry[]> = {};
+		let mqts: Record<string, SchemaTreeEntry[]> = {};
 
 		for(let [schema, entries] of Object.entries(tablesBySchema)) {
-			mapped[schema] = entries.map(entry => {
+			tables[schema] = [];
+
+			for(let entry of entries) {
 				let key = getEntryKey(entry);
-				return { schema: key.schema, table: key.table, description: entry.connected?.description };
-			});
+				let treeEntry = { schema: key.schema, table: key.table, description: entry.connected?.description };
+
+				if(entry.connected && SystemTable.isMqt(entry.connected)) {
+					(mqts[schema] ??= []).push(treeEntry);
+				} else {
+					tables[schema].push(treeEntry);
+				}
+			}
 		}
 
-		return mapped;
+		return { treeTablesBySchema: tables, treeMqtsBySchema: mqts };
 	}, [tablesBySchema]);
 
 	const treeViewsBySchema = useMemo(() => {
@@ -814,6 +826,7 @@ export function App() {
 			<Stack direction="row" sx={{ height: '100vh', minHeight: 0, overflow: 'hidden' }}>
 				<SchemaTree
 					tablesBySchema={treeTablesBySchema}
+					mqtsBySchema={treeMqtsBySchema}
 					viewsBySchema={treeViewsBySchema}
 					functionsBySchema={treeFunctionsBySchema}
 					proceduresBySchema={treeProceduresBySchema}
