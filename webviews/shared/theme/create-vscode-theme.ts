@@ -2,6 +2,9 @@ import type { Theme } from '@mui/material/styles';
 import { createTheme } from '@mui/material/styles';
 import type { VsCodeThemeKind } from './use-vscode-theme-kind';
 
+/** How long the pointer must rest on something before its tooltip shows - see MuiTooltip below. */
+export const TOOLTIP_ENTER_DELAY_MS = 500;
+
 export function createVsCodeTheme(themeKind: VsCodeThemeKind): Theme {
 	const mode = themeKind === 'light' || themeKind === 'high-contrast-light' ? 'light' : 'dark';
 	const isLight = mode === 'light';
@@ -58,6 +61,15 @@ export function createVsCodeTheme(themeKind: VsCodeThemeKind): Theme {
 			fontSize: parseFloat(read('--vscode-font-size', '13px', '13px')) || 13,
 		},
 		components: {
+			MuiTooltip: {
+				defaultProps: {
+					// Every tooltip in every webview waits this long before showing, like VS Code's own
+					// hovers, rather than MUI's 100ms - quick enough to find, slow enough not to pop up over
+					// a grid or diagram the pointer is just passing across. MUI's hysteresis still opens the
+					// next tooltip at once while moving between neighbouring ones.
+					enterDelay: TOOLTIP_ENTER_DELAY_MS,
+				},
+			},
 			MuiButtonBase: {
 				defaultProps: {
 					disableRipple: true,

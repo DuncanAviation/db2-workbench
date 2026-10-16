@@ -18,6 +18,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 ### Changed
 
 - The diagram's column tooltip now shows the column's type.
+- Tooltips throughout the extension wait half a second before showing, like VS Code's own hovers, instead of appearing almost immediately.
 
 ## [0.1.0] - 2026-10-12
 

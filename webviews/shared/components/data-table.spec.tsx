@@ -6,6 +6,7 @@ import type { ColumnDef, RowSelectionState, SortingState } from '@tanstack/react
 import { getCoreRowModel, getFilteredRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table';
 import { useFakeTimeouts } from '../../test-support/fake-timers';
 import { renderWebview } from '../../test-support/render-webview';
+import { TOOLTIP_ENTER_DELAY_MS } from '../theme/create-vscode-theme';
 import type { ExportCapability, FilterChip, RowActionsSource, TableAction } from './data-table';
 import { DataTable } from './data-table';
 
@@ -671,6 +672,20 @@ describe('DataTable', () => {
 					vi.advanceTimersByTime(1000);
 				});
 			}
+
+			// The theme's delay (create-vscode-theme.ts), which every tooltip in every webview gets.
+			it('waits the theme tooltip delay before showing', async () => {
+				let user = userEvent.setup({ delay: null });
+				renderTable({ columns: DETAILED_COLUMNS });
+
+				await user.hover(headerText('PARTID'));
+				act(() => {
+					vi.advanceTimersByTime(TOOLTIP_ENTER_DELAY_MS - 100);
+				});
+				expect(screen.queryByRole('tooltip')).toBeNull();
+
+				await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
+			});
 
 			it('hides on right-click and stays hidden over any header while the menu is open', async () => {
 				let user = userEvent.setup({ delay: null });
