@@ -34,6 +34,8 @@ import type { ButtonGroupAction } from './button-group';
 import { ButtonGroup, flattenActions } from './button-group';
 import { ContextMenu } from './context-menu';
 import { ExportDialog } from './export-dialog';
+import { columnCopyMenuItems } from './column-copy-menu-items';
+import { ContextMenuOpenContext, MenuAwareTooltip } from './menu-aware-tooltip';
 import { TooltipLines } from './tooltip-lines';
 
 declare module '@tanstack/react-table' {
@@ -213,19 +215,10 @@ const ACTIONS_CELL_SX = {
 
 const ACTIONS_COLUMN_WIDTH = 48;
 
-// A database column header's right-click menu. "Name" is DB2's short system name, the one hand-written SQL
-// against these files mostly uses. An item the column has no value for (a computed column has no short
-// name or description) is shown disabled rather than left out, so the menu always reads the same.
-const HEADER_COPY_ITEMS: { label: string; value: (details: ColumnDetails) => string | undefined }[] = [
-	{ label: 'Copy Name', value: details => details.shortName },
-	{ label: 'Copy Long Name', value: details => details.longName },
-	{ label: 'Copy Description', value: details => details.description }
-];
-
 // The stripe and header colors (VS Code's, or MUI's action.hover without them) are translucent
-// overlays (e.g. rgba(0,0,0,0.04)), meant to be laid over a background once. That's fine for a plain zebra-striped cell, but the actions column
-// is `position: sticky` and sits on top of cells scrolling underneath it - a translucent
-// background there lets that underlying text bleed through. Flatten it against background.paper
+// overlays (e.g. rgba(0,0,0,0.04)), meant to be laid over a background once. That's fine for a plain
+// zebra-striped cell, but the actions column is `position: sticky` and sits on top of cells scrolling
+// underneath it - a translucent background there lets that underlying text bleed through. Flatten it against background.paper
 // up front so every cell (including the sticky one) gets a genuinely opaque color.
 function flattenOverlay(overlay: string, background: string): string {
 	const o = decomposeColor(overlay);
@@ -443,9 +436,6 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 	const [rowMenuState, setRowMenuState] = useState<{ anchorEl: HTMLElement; targetRows: TData[] } | null>(null);
 	const [contextMenuState, setContextMenuState] = useState<{ mouseX: number; mouseY: number; targetRows: TData[]; cell?: { row: TData; columnId: string } } | null>(null);
 	const [headerMenuState, setHeaderMenuState] = useState<{ mouseX: number; mouseY: number; details: ColumnDetails } | null>(null);
-	// The header tooltips are controlled, so they can be held shut around the header menu - see isHeaderTooltipOpen.
-	const [hoveredHeaderId, setHoveredHeaderId] = useState<string | null>(null);
-	const [tooltipSuppressedHeaderId, setTooltipSuppressedHeaderId] = useState<string | null>(null);
 	const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
 	// Refresh and Export are default actions: Export is always available (but disabled with nothing
@@ -591,20 +581,11 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 
 	// Replaces the webview's own Cut/Copy/Paste menu on a database column's header, which has nothing
 	// selectable to copy there anyway.
-	function handleHeaderContextMenu(event: MouseEvent<HTMLTableCellElement>, headerId: string, details: ColumnDetails) {
+	function handleHeaderContextMenu(event: MouseEvent<HTMLTableCellElement>, details: ColumnDetails) {
 		event.preventDefault();
 		setRowMenuState(null);
 		setContextMenuState(null);
-		setTooltipSuppressedHeaderId(headerId);
 		setHeaderMenuState({ mouseX: event.clientX, mouseY: event.clientY, details });
-	}
-
-	// A tooltip sits above a menu (MUI's z-index 1500 vs 1300), so a header's tooltip would cover the
-	// copy menu whenever the pointer strayed back over a header. No header tooltip shows while that menu
-	// is open, nor on the right-clicked header until the pointer leaves it - otherwise dismissing the menu
-	// by clicking that same header pops the tooltip straight back.
-	function isHeaderTooltipOpen(headerId: string): boolean {
-		return hoveredHeaderId === headerId && headerMenuState == null && tooltipSuppressedHeaderId !== headerId;
 	}
 
 	function handleHeaderMenuClose() {
@@ -669,7 +650,8 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 	const paddingBottom = virtualizer && virtualItems && virtualItems.length > 0 ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end : 0;
 	const columnCount = table.getVisibleFlatColumns().length + (hasRowActions ? 1 : 0);
 
-	return (
+	// Held in a variable so the provider can wrap it without reindenting the whole tree.
+	const body = (
 		<Stack sx={{ height: '100%', minHeight: 0, flexGrow: 1 }}>
 			<Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, p: 1 }}>
 				<TextField
@@ -762,21 +744,15 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 										<TableCell
 											key={header.id}
 											sx={headerCellSx}
-											onContextMenu={details ? event => handleHeaderContextMenu(event, header.id, details) : undefined}
-											onMouseLeave={tooltipSuppressedHeaderId === header.id ? () => setTooltipSuppressedHeaderId(null) : undefined}
+											onContextMenu={details ? event => handleHeaderContextMenu(event, details) : undefined}
 										>
 											{/* A span, since a Tooltip needs one element to listen on and a sortable header's
-											content is a TableSortLabel while a plain one's is whatever the column renders. */}
+											content is a TableSortLabel while a plain one's is whatever the column renders.
+											MenuAwareTooltip keeps it from covering the header's own copy menu. */}
 											{detailLines.length > 0 ? (
-												<Tooltip
-													title={<TooltipLines lines={detailLines} />}
-													placement="bottom-start"
-													open={isHeaderTooltipOpen(header.id)}
-													onOpen={() => setHoveredHeaderId(header.id)}
-													onClose={() => setHoveredHeaderId(current => current === header.id ? null : current)}
-												>
+												<MenuAwareTooltip title={<TooltipLines lines={detailLines} />} placement="bottom-start">
 													<span>{content}</span>
-												</Tooltip>
+												</MenuAwareTooltip>
 											) : content}
 										</TableCell>
 									);
@@ -874,25 +850,7 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 			</ContextMenu>
 
 			<ContextMenu position={headerMenuState} onClose={handleHeaderMenuClose}>
-				{HEADER_COPY_ITEMS.map(item => {
-					let value = headerMenuState ? item.value(headerMenuState.details) : undefined;
-
-					return (
-						<MenuItem
-							key={item.label}
-							disabled={value == null || value.trim() === ''}
-							onClick={() => {
-								handleHeaderMenuClose();
-
-								if (value != null) {
-									void navigator.clipboard.writeText(value);
-								}
-							}}
-						>
-							{item.label}
-						</MenuItem>
-					);
-				})}
+				{headerMenuState && columnCopyMenuItems(headerMenuState.details, handleHeaderMenuClose)}
 			</ContextMenu>
 
 			<ExportDialog
@@ -908,4 +866,6 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 			/>
 		</Stack>
 	);
+
+	return <ContextMenuOpenContext.Provider value={headerMenuState != null}>{body}</ContextMenuOpenContext.Provider>;
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react';
 // Box only (not Stack/Typography) - see the comment in table-node.tsx for why.
-import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, InputBase, Menu, MenuItem, Tooltip } from '@mui/material';
+import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, IconButton, InputBase, Menu, MenuItem, Tooltip } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -37,6 +37,8 @@ import { SchemaOverviewMap } from './components/schema-overview-map';
 import { SyncSummaryDialog } from './components/sync-summary-dialog';
 import { AddMissingTargetsDialog } from './components/add-missing-targets-dialog';
 import { ContextMenu } from '../shared/components/context-menu';
+import { columnCopyMenuItems, copyMenuItem } from '../shared/components/column-copy-menu-items';
+import { ContextMenuOpenContext } from '../shared/components/menu-aware-tooltip';
 import { EditSchemaListDialog } from '../shared/components/edit-schema-list-dialog';
 import { ImportErrorDialog } from '../shared/components/import-error-dialog';
 import { KeepRemoveDialog } from '../shared/components/keep-remove-dialog';
@@ -310,7 +312,7 @@ export function App() {
 	// own. `ids` is always one schema id for kind 'schema'; for kind 'table' it's every table the action
 	// applies to - one table, or the whole multi-selection when the right-click landed inside it (see
 	// handleNodeContextMenu).
-	let [nodeContextMenu, setNodeContextMenu] = useState<{ mouseX: number; mouseY: number; kind: 'table' | 'schema'; ids: string[] } | null>(null);
+	let [nodeContextMenu, setNodeContextMenu] = useState<{ mouseX: number; mouseY: number; kind: 'table' | 'schema'; ids: string[]; part?: NodeMenuPart } | null>(null);
 	// Snapshot of the table ids awaiting a "Remove N Tables?" confirmation - null means the dialog is
 	// closed. Only used for 2+ tables; removing a single table (from the menu, or a batch of one) never
 	// prompts, matching the plain single-table Remove's existing no-confirmation behavior.
@@ -1024,8 +1026,38 @@ export function App() {
 			setNodes(current => current.map(candidate => ({ ...candidate, selected: candidate.id === node.id })));
 		}
 
-		setNodeContextMenu({ mouseX: event.clientX, mouseY: event.clientY, kind: 'table', ids: ids });
+		// Which part of the table was right-clicked, for the Copy items at the top of the menu: a column row
+		// (table-node.tsx tags each with data-column-name), or the header - the drag handle, which is the
+		// header while expanded and the whole name block while collapsed. Always the clicked table, even
+		// when the rest of the menu acts on a whole selection.
+		let target = event.target as HTMLElement;
+		let columnName = target.closest<HTMLElement>('[data-column-name]')?.dataset.columnName;
+		let part: NodeMenuPart | undefined = columnName != null
+			? { kind: 'column', tableId: node.id, columnName: columnName }
+			: target.closest(`.${TABLE_DRAG_HANDLE_CLASS}`) ? { kind: 'header', tableId: node.id } : undefined;
+
+		setNodeContextMenu({ mouseX: event.clientX, mouseY: event.clientY, kind: 'table', ids: ids, part: part });
 	}, [nodes, setNodes]);
+
+	// The Copy items for the part of a table that was right-clicked - the table's name for its header, the
+	// same Copy Name / Copy Long Name / Copy Description a data grid's column header offers for a column.
+	let nodeMenuCopyItems = useMemo(() => {
+		let part = nodeContextMenu?.part;
+		let table = part ? tableById.get(part.tableId) : undefined;
+		let close = () => setNodeContextMenu(null);
+
+		if(!part || !table) {
+			return [];
+		}
+
+		if(part.kind === 'header') {
+			return [copyMenuItem('Copy Name', table.name, close)];
+		}
+
+		let columnName = part.columnName;
+		let column = table.columns.find(candidate => candidate.name === columnName);
+		return column ? columnCopyMenuItems(column, close) : [];
+	}, [nodeContextMenu, tableById]);
 
 	// The single table the "Disable Imported Changes" item applies to, or undefined when the item should not
 	// be offered at all: a schema group, a multi-table selection (every one of them would need its own
@@ -1283,7 +1315,9 @@ export function App() {
 		setSqlImportError(undefined);
 	}, []);
 
-	return (
+	// Held in a variable so the provider can wrap it without reindenting the whole tree. The provider keeps
+	// the tables' tooltips (MenuAwareTooltip) from covering the node menu.
+	let body = (
 		<Box sx={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'row' }}>
 			{/* Only rendered once connected - an always-present empty rail would just take space from the
 			canvas on a diagram being read rather than built. The tree collapses to a thin strip via its own
@@ -1479,6 +1513,8 @@ export function App() {
 			</Box>
 
 			<ContextMenu position={nodeContextMenu} onClose={() => setNodeContextMenu(null)}>
+				{nodeMenuCopyItems}
+				{nodeMenuCopyItems.length > 0 && <Divider />}
 				{nodeContextMenu?.kind === 'table' && nodeContextMenu.ids.length === 1 && (
 					<MenuItem onClick={handleOpenSchema}>Open Schema</MenuItem>
 				)}
@@ -1607,4 +1643,9 @@ export function App() {
 			/>
 		</Box>
 	);
+
+	return <ContextMenuOpenContext.Provider value={nodeContextMenu != null}>{body}</ContextMenuOpenContext.Provider>;
 }
+
+/** The part of a table a right-click landed on, when it was one the node menu offers Copy items for. */
+type NodeMenuPart = { kind: 'header'; tableId: string } | { kind: 'column'; tableId: string; columnName: string };

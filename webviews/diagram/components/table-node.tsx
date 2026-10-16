@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Box, Tooltip } from '@mui/material';
+import { Box } from '@mui/material';
 import { keyframes } from '@emotion/react';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
@@ -14,6 +14,7 @@ import { TABLE_MIDDLE_HANDLE_ID } from '../../../src/diagram/diagram-edge-routin
 import { columnDisplayName, columnTooltipLines } from '../../../src/diagram/diagram-column-labels';
 import type { ColumnIndexMembership, ForeignKeyTarget } from '../../../src/diagram/diagram-column-labels';
 import { ImportBadge } from '../../shared/components/import-badge';
+import { MenuAwareTooltip } from '../../shared/components/menu-aware-tooltip';
 import { TooltipLines } from '../../shared/components/tooltip-lines';
 import type { ImportBadgeKind } from '../../shared/components/import-badge';
 import { COLUMN_ICON_COLOR, HIGHLIGHT_COLOR, IMPORT_COLOR } from '../diagram-colors';
@@ -176,7 +177,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 
 			{expanded ? (
 				<>
-					<Tooltip title={tableTooltip} placement="top">
+					<MenuAwareTooltip title={tableTooltip} placement="top">
 						<Box className={TABLE_DRAG_HANDLE_CLASS} sx={{px: 1, py: `${HEADER_PADDING_Y}px`, backgroundColor: color, color: '#fff'}}>
 							<Box sx={{display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 0.5}}>
 								{/* lineHeight pinned to TITLE_LINE_HEIGHT for the same reason as the description Box below -
@@ -203,7 +204,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 								<Box sx={{fontSize: '0.7rem', lineHeight: `${DESCRIPTION_HEIGHT}px`, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{table.description}</Box>
 							)}
 						</Box>
-					</Tooltip>
+					</MenuAwareTooltip>
 
 					<Box>
 						{table.columns.map(column => (
@@ -231,7 +232,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 				// schema's own zoomed-out summary box (schema-group-node.tsx), just filled with this table's
 				// own header color instead of a translucent tint, so it still reads as "this table" rather
 				// than "this schema".
-				<Tooltip title={tableTooltip} placement="top">
+				<MenuAwareTooltip title={tableTooltip} placement="top">
 					<Box
 						className={TABLE_DRAG_HANDLE_CLASS}
 						sx={{
@@ -252,7 +253,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 							<Box sx={{width: '100%', fontSize: '1.15rem', fontWeight: 400, opacity: 0.85, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{table.description}</Box>
 						)}
 					</Box>
-				</Tooltip>
+				</MenuAwareTooltip>
 			)}
 
 			{/* Always rendered, regardless of `expanded` - unlike the per-column handles above (which
@@ -305,6 +306,8 @@ function ColumnRow({
 	let row = (
 		<Box
 			onClick={handleClick}
+			// What app.tsx's node right-click handler reads to tell a column row from the header.
+			data-column-name={column.name}
 			sx={{
 				position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 0.5,
 				height: ROW_HEIGHT, px: 1, cursor: 'pointer',
@@ -374,9 +377,9 @@ function ColumnRow({
 	}
 
 	return (
-		<Tooltip placement="right" title={<TooltipLines lines={tooltipLines} />}>
+		<MenuAwareTooltip placement="right" title={<TooltipLines lines={tooltipLines} />}>
 			{row}
-		</Tooltip>
+		</MenuAwareTooltip>
 	);
 }
 
@@ -482,11 +485,11 @@ function MissingTargetIcon({target, onClick}: {target: MissingRelationshipTarget
 		: `Add ${target.targets.length} referenced tables to the diagram`;
 
 	return (
-		<Tooltip title={title} placement="right">
+		<MenuAwareTooltip title={title} placement="right">
 			<Box onClick={handleClick} sx={{display: 'flex', color: COLUMN_ICON_COLOR}}>
 				<AddLinkIcon sx={{fontSize: 12}} />
 			</Box>
-		</Tooltip>
+		</MenuAwareTooltip>
 	);
 }
 

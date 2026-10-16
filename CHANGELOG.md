@@ -14,6 +14,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 - Materialized query tables are offered by content assist and resolved by View Table Details, the same as tables.
 - **Column header tooltips.** Hovering a column header in the results grid or the schema browser's Data tab shows the column's short name, long name, description and type, plus whether it's an identity column or NOT NULL. Computed columns show the type the driver reports.
 - **Copy column names from a header.** Right-clicking a column header in the results grid or the Data tab offers Copy Name, Copy Long Name and Copy Description.
+- **Copy names from a diagram.** Right-clicking a table's header on a diagram offers Copy Name for the table; right-clicking one of its columns offers the same Copy Name, Copy Long Name and Copy Description as a grid header.
 
 ### Changed
 
