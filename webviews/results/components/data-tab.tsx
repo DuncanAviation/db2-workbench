@@ -46,8 +46,8 @@ export function DataTab({ session }: Props) {
 	);
 
 	const columns = useMemo<ColumnDef<Row>[]>(
-		() => buildRowColumns(session.columns, session.columnLabels, columnWidths, { numericColumns }),
-		[session.columns, session.columnLabels, columnWidths, numericColumns]
+		() => buildRowColumns(session.columns, session.columnLabels, columnWidths, { numericColumns, columnDetails: session.columnDetails }),
+		[session.columns, session.columnLabels, columnWidths, numericColumns, session.columnDetails]
 	);
 
 	const table = useReactTable({

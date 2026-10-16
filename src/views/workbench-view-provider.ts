@@ -1,6 +1,6 @@
 import { concatMap, Subject } from 'rxjs';
 import * as vscode from 'vscode';
-import { DbDriver } from '../database/drivers/db-driver.js';
+import { DbColumnDefinition, DbDriver } from '../database/drivers/db-driver.js';
 import { ConnectionConfigEvent } from '../events/connection-config-event.js';
 import { DbConnectionEvent } from '../events/db-connection-event.js';
 import { Event } from '../events/event.js';
@@ -12,6 +12,7 @@ import { Row } from '../interfaces/row.js';
 import { ConnectionConfig } from '../models/connection-config.js';
 import { SystemColumn } from '../models/system-column.js';
 import { AlertUtils } from '../utils/alert-utils.js';
+import { ColumnDetails, ColumnDetailsUtils } from '../utils/column-details.js';
 import { ColumnNameUtils } from '../utils/column-name-utils.js';
 import { EditorUtils } from '../utils/editor-utils.js';
 import { ExportUtils } from '../utils/export-utils.js';
@@ -197,7 +198,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 		currentSession.rows = [];
 		currentSession.isCursorOpen = false;
 		currentSession.duplicateColumns = undefined;
-		currentSession.columnDataTypes = undefined;
+		currentSession.columnDefinitions = undefined;
 		this.setActiveUri(currentSession.uri);
 	}
 
@@ -228,7 +229,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 		currentSession.rows = [];
 		currentSession.isCursorOpen = false;
 		currentSession.duplicateColumns = undefined;
-		currentSession.columnDataTypes = undefined;
+		currentSession.columnDefinitions = undefined;
 		currentSession.procedureOutParameters = undefined;
 		this.setActiveUri(currentSession.uri);
 	}
@@ -269,10 +270,9 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 		currentSession.rows = <Row[]>dbConnectionEvent.result;
 		currentSession.isCursorOpen = dbConnectionEvent.isCursorOpen;
 		currentSession.duplicateColumns = dbConnectionEvent.duplicateColumns;
-		// Keyed by the driver-reported column name, which is also the row key - the Data tab right-aligns
-		// the numeric ones. The driver's type name (e.g. ODBC's "SQL_DECIMAL") still contains the bare
-		// DB2 type name FieldUtils.isNumericType looks for.
-		currentSession.columnDataTypes = Object.fromEntries((dbConnectionEvent.result?.columns ?? []).map(column => [column.name, column.dataTypeName]));
+		// The driver's own description of the result set - its type names right-align the numeric columns
+		// in the Data tab, and describe a computed column (one with no catalog entry) in its header tooltip.
+		currentSession.columnDefinitions = dbConnectionEvent.result?.columns;
 		currentSession.procedureOutParameters = dbConnectionEvent.procedureOutParameters;
 
 		// Always re-resolve (not just when session.parameters is still empty) - a prior attempt may
@@ -690,7 +690,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 		};
 	}
 
-	private async resolveColumnsAndLabels(session: WorkbenchViewProvider.SqlSession): Promise<{columns: string[]; columnLabels: Record<string, string[]>}> {
+	private async resolveColumnsAndLabels(session: WorkbenchViewProvider.SqlSession): Promise<{columns: string[]; columnLabels: Record<string, string[]>; columnDetails: Record<string, ColumnDetails>}> {
 		let latestHistory: Nullable<WorkbenchViewProvider.SqlHistory>;
 
 		if(session.histories.length > 0) {
@@ -703,13 +703,15 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 		// The duplicate-column warning names its columns through these labels too, and a result can have
 		// duplicates without having rows - so label those keys even when rows[0] has none to offer.
 		let labelKeys = Array.from(new Set([...columns, ...(session.duplicateColumns ?? [])]));
-		let columnLabels = await this.getLabelsFromCache(sql, labelKeys);
+		let lookup = await this.getColumnLookupFromCache(sql);
+		let columnLabels = ColumnNameUtils.buildLabelMap(lookup, labelKeys, this.extension.configurations.resultHeadingLabels);
+		let columnDetails = ColumnDetailsUtils.buildDetailsMap(lookup, columns, session.columnDefinitions);
 
-		return {columns, columnLabels};
+		return {columns, columnLabels, columnDetails};
 	}
 
 	private async buildSessionDetail(session: WorkbenchViewProvider.SqlSession): Promise<ResultsSessionDetail> {
-		let {columns, columnLabels} = await this.resolveColumnsAndLabels(session);
+		let {columns, columnLabels, columnDetails} = await this.resolveColumnsAndLabels(session);
 
 		return {
 			uri: session.uri,
@@ -739,8 +741,11 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 			rows: session.rows,
 			columns,
 			columnLabels,
+			columnDetails,
 			duplicateColumns: session.duplicateColumns,
-			columnDataTypes: session.columnDataTypes ?? ({}),
+			// Keyed by the driver-reported column name, which is also the row key. The driver's type name
+			// (e.g. ODBC's "SQL_DECIMAL") still contains the bare DB2 type name FieldUtils.isNumericType looks for.
+			columnDataTypes: Object.fromEntries((session.columnDefinitions ?? []).map(column => [column.name, column.dataTypeName])),
 			procedureOutParameters: session.procedureOutParameters ?? [],
 			isCursorOpen: !!session.isCursorOpen,
 			isFetchingAll: !!session.isFetchingAll,
@@ -829,14 +834,15 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 		}, error => AlertUtils.onError(error));
 	}
 
-	private async getLabelsFromCache(sql: string, columnKeys: string[]): Promise<Record<string, string[]>> {
+	// The statement's tables' catalog columns, keyed by uppercased long name (the row key of an ordinary
+	// unaliased DB2 query) - what the result headers' labels and tooltips are built from.
+	private async getColumnLookupFromCache(sql: string): Promise<Map<string, SystemColumn>> {
 		let parseResults = StatementParser.parse(sql);
+		const lookup = new Map<string, SystemColumn>();
 
 		if(parseResults == null) {
-			return {};
+			return lookup;
 		}
-
-		const lookup = new Map<string, SystemColumn>();
 
 		if(parseResults.statementType === StatementParser.StatementType.SQL
 		&& parseResults.tables?.length) {
@@ -856,7 +862,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 			}
 		}
 
-		return ColumnNameUtils.buildLabelMap(lookup, columnKeys, this.extension.configurations.resultHeadingLabels);
+		return lookup;
 	}
 
 	// No-ops if `key` has no session yet - a webview panel that's still connecting (or failed to
@@ -906,7 +912,7 @@ export namespace WorkbenchViewProvider {
 		rows: Row[];
 		isCursorOpen?: boolean;
 		duplicateColumns?: string[];
-		columnDataTypes?: Record<string, string>;
+		columnDefinitions?: DbColumnDefinition[];
 		procedureOutParameters?: ProcedureOutParameter[];
 		columnLabels?: Record<string, string>;
 		histories: SqlHistory[];

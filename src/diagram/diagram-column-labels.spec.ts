@@ -97,22 +97,28 @@ describe('diagram-column-labels', () => {
 	});
 
 	describe('columnTooltipLines', () => {
-		it('reports all three name forms when the column has them', () => {
+		it('reports all three name forms and the type when the column has them', () => {
 			expect(columnTooltipLines(column())).to.deep.equal([
 				{label: ResultHeadingLabel.SHORT_NAME, value: 'EMNO'},
 				{label: ResultHeadingLabel.LONG_NAME, value: 'EMPLOYEE_ID'},
-				{label: ResultHeadingLabel.DESCRIPTION, value: 'Employee Code'}
+				{label: ResultHeadingLabel.DESCRIPTION, value: 'Employee Code'},
+				{label: 'Type', value: 'INTEGER'}
 			]);
 		});
 
 		it('skips whichever forms the column does not have', () => {
 			expect(columnTooltipLines(column({shortName: undefined, description: undefined}))).to.deep.equal([
-				{label: ResultHeadingLabel.LONG_NAME, value: 'EMPLOYEE_ID'}
+				{label: ResultHeadingLabel.LONG_NAME, value: 'EMPLOYEE_ID'},
+				{label: 'Type', value: 'INTEGER'}
 			]);
 		});
 
-		it('is empty for a column with only an identity', () => {
-			expect(columnTooltipLines(legacyColumn('BADGE'))).to.be.empty;
+		it('is only the type for a column with only an identity', () => {
+			expect(columnTooltipLines(legacyColumn('BADGE'))).to.deep.equal([{label: 'Type', value: 'CHAR(10)'}]);
+		});
+
+		it('is empty for a column with no names and no type', () => {
+			expect(columnTooltipLines({...legacyColumn('BADGE'), type: ''})).to.be.empty;
 		});
 
 		it('adds a Primary Key line for a primary key column', () => {
@@ -120,12 +126,14 @@ describe('diagram-column-labels', () => {
 				{label: ResultHeadingLabel.SHORT_NAME, value: 'EMNO'},
 				{label: ResultHeadingLabel.LONG_NAME, value: 'EMPLOYEE_ID'},
 				{label: ResultHeadingLabel.DESCRIPTION, value: 'Employee Code'},
+				{label: 'Type', value: 'INTEGER'},
 				{label: 'Primary Key', value: 'Yes'}
 			]);
 		});
 
 		it('adds Identity before Primary Key for a column that is both', () => {
 			expect(columnTooltipLines({...legacyColumn('RCID'), primaryKey: true, identity: true})).to.deep.equal([
+				{label: 'Type', value: 'CHAR(10)'},
 				{label: 'Identity', value: 'Yes'},
 				{label: 'Primary Key', value: 'Yes'}
 			]);
@@ -136,6 +144,7 @@ describe('diagram-column-labels', () => {
 				{label: ResultHeadingLabel.SHORT_NAME, value: 'EMNO'},
 				{label: ResultHeadingLabel.LONG_NAME, value: 'EMPLOYEE_ID'},
 				{label: ResultHeadingLabel.DESCRIPTION, value: 'Employee Code'},
+				{label: 'Type', value: 'INTEGER'},
 				{label: 'Identity', value: 'Yes'}
 			]);
 		});
@@ -147,13 +156,14 @@ describe('diagram-column-labels', () => {
 			]);
 
 			expect(lines).to.deep.equal([
+				{label: 'Type', value: 'CHAR(10)'},
 				{label: 'Foreign Key', value: 'ACME.DEPARTMENT.DEPT_ID'},
 				{label: 'Foreign Key', value: 'ACME.LOCATION.LOC_ID'}
 			]);
 		});
 
 		it('has no Foreign Key line when no targets are given', () => {
-			expect(columnTooltipLines(legacyColumn('BADGE'), [])).to.be.empty;
+			expect(columnTooltipLines(legacyColumn('BADGE'), []).map(line => line.label)).to.not.include('Foreign Key');
 		});
 	});
 });

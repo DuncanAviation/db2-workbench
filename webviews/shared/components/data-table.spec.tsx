@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import type { ColumnDef, RowSelectionState, SortingState } from '@tanstack/react-table';
 import { getCoreRowModel, getFilteredRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table';
+import { useFakeTimeouts } from '../../test-support/fake-timers';
 import { renderWebview } from '../../test-support/render-webview';
+import { TOOLTIP_ENTER_DELAY_MS } from '../theme/create-vscode-theme';
 import type { ExportCapability, FilterChip, RowActionsSource, TableAction } from './data-table';
 import { DataTable } from './data-table';
 
@@ -134,6 +136,16 @@ describe('DataTable', () => {
 			}
 		});
 
+		it('draws a line between columns, on each cell but the first, in headers and body alike', () => {
+			renderTable();
+
+			let rows = [headerCells(), ...bodyRows().map(row => within(row).getAllByRole('cell'))];
+
+			for (let cells of rows) {
+				expect(cells.map(cell => getComputedStyle(cell).borderLeftStyle === 'solid')).toEqual([false, true, true]);
+			}
+		});
+
 		it('with maxCellWidth, truncates with an ellipsis and puts the full value in a title', () => {
 			renderTable({ maxCellWidth: 120, data: [{ id: 1, name: 'A very long part description', quantity: 5 }] });
 
@@ -198,6 +210,48 @@ describe('DataTable', () => {
 			expect(selected).not.toBe(even);
 			expect(selected).not.toBe(odd);
 			expect(backgroundOf(bodyRows()[0])).toBe(even);
+		});
+	});
+
+	// The colors VS Code's own Keyboard Shortcuts table uses, read from the theme the webview is handed.
+	// Set on the body the way VS Code sets them, before the theme reads them at render.
+	describe('VS Code table colors', () => {
+		const TOKENS: Record<string, string> = {
+			'--vscode-editor-background': '#ffffff',
+			'--vscode-keybindingTable-rowsBackground': '#ff000080',
+			'--vscode-keybindingTable-headerBackground': '#0000ff80',
+			'--vscode-tree-tableColumnsBorder': '#00ff00'
+		};
+
+		beforeEach(() => {
+			for (let [name, value] of Object.entries(TOKENS)) {
+				document.body.style.setProperty(name, value);
+			}
+		});
+
+		afterEach(() => {
+			for (let name of Object.keys(TOKENS)) {
+				document.body.style.removeProperty(name);
+			}
+		});
+
+		it('stripes rows and fills the header with them, flattened to opaque colors', () => {
+			renderTable();
+
+			// Half-transparent red and blue, flattened over the white background.
+			expect(bodyRows().map(backgroundOf)).toEqual(['rgb(255, 255, 255)', 'rgb(255, 127, 127)', 'rgb(255, 255, 255)', 'rgb(255, 127, 127)']);
+			expect(headerCells().map(cell => getComputedStyle(cell).backgroundColor)).toEqual(Array(3).fill('rgb(127, 127, 255)'));
+		});
+
+		it('draws column lines in the column border color, and no line between rows', () => {
+			renderTable();
+
+			let cells = within(bodyRows()[0]).getAllByRole('cell');
+
+			expect(getComputedStyle(cells[1]).borderLeftColor).toBe('rgb(0, 255, 0)');
+			for (let cell of [...headerCells(), ...cells]) {
+				expect(getComputedStyle(cell).borderBottomWidth).toMatch(/^0(px)?$/);
+			}
 		});
 	});
 
@@ -600,6 +654,133 @@ describe('DataTable', () => {
 
 			rerender(PARTS.map(part => part.id === 2 ? { ...part, name: 'Lock washer' } : part));
 			expect(renders).toEqual([1, 2, 3, 4]);
+		});
+	});
+
+	describe('database column headers', () => {
+		const DETAILED_COLUMNS: ColumnDef<Part>[] = [
+			{ id: 'id', accessorKey: 'id', header: 'PARTID', meta: { details: { shortName: 'PARTID', longName: 'PART_IDENTIFIER', description: 'Part Identifier', type: 'INTEGER', notNull: true } } },
+			{ id: 'name', accessorKey: 'name', header: 'NAME', meta: { details: { longName: 'NAME', type: 'VARCHAR(50)' } } },
+			{ id: 'quantity', accessorKey: 'quantity', header: 'Quantity' }
+		];
+
+		it('shows the column names, type and known flags when its header is hovered', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+
+			await user.hover(screen.getByText('PARTID'));
+
+			let tooltip = await screen.findByRole('tooltip');
+			expect(tooltip.textContent).toContain('Short Name: PARTID');
+			expect(tooltip.textContent).toContain('Long Name: PART_IDENTIFIER');
+			expect(tooltip.textContent).toContain('Description: Part Identifier');
+			expect(tooltip.textContent).toContain('Type: INTEGER');
+			expect(tooltip.textContent).toContain('Not Null: Yes');
+		});
+
+		it('copies the chosen name form from the header right-click menu', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+			await navigator.clipboard.writeText('untouched');
+
+			await user.pointer({ keys: '[MouseRight]', target: screen.getByText('PARTID') });
+			await user.click(screen.getByRole('menuitem', { name: 'Copy Long Name' }));
+
+			expect(await navigator.clipboard.readText()).toBe('PART_IDENTIFIER');
+			await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+		});
+
+		it('disables a copy item the column has no value for', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+
+			await user.pointer({ keys: '[MouseRight]', target: screen.getByText('NAME') });
+
+			expect(screen.getByRole('menuitem', { name: 'Copy Name' }).getAttribute('aria-disabled')).toBe('true');
+			expect(screen.getByRole('menuitem', { name: 'Copy Long Name' }).getAttribute('aria-disabled')).toBeNull();
+			expect(screen.getByRole('menuitem', { name: 'Copy Description' }).getAttribute('aria-disabled')).toBe('true');
+		});
+
+		// MUI opens a tooltip after a delay and closes it through a transition, both on setTimeout - faked
+		// so a test can say no tooltip appeared, rather than only that one had not appeared yet.
+		describe('tooltip around the header menu', () => {
+			let restoreTimeouts: () => void;
+
+			beforeEach(() => {
+				restoreTimeouts = useFakeTimeouts();
+			});
+
+			afterEach(() => restoreTimeouts());
+
+			// The tooltip repeats the header's name, so look it up in the header row only - including while the
+			// menu is open, when MUI marks the rest of the page aria-hidden.
+			function headerText(text: string): HTMLElement {
+				let [head] = within(screen.getByRole('table', { hidden: true })).getAllByRole('rowgroup', { hidden: true });
+				return within(head).getByText(text);
+			}
+
+			function settle() {
+				act(() => {
+					vi.advanceTimersByTime(1000);
+				});
+			}
+
+			// The theme's delay (create-vscode-theme.ts), which every tooltip in every webview gets.
+			it('waits the theme tooltip delay before showing', async () => {
+				let user = userEvent.setup({ delay: null });
+				renderTable({ columns: DETAILED_COLUMNS });
+
+				await user.hover(headerText('PARTID'));
+				act(() => {
+					vi.advanceTimersByTime(TOOLTIP_ENTER_DELAY_MS - 100);
+				});
+				expect(screen.queryByRole('tooltip')).toBeNull();
+
+				await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
+			});
+
+			it('hides on right-click and stays hidden over any header while the menu is open', async () => {
+				let user = userEvent.setup({ delay: null });
+				renderTable({ columns: DETAILED_COLUMNS });
+
+				await user.hover(headerText('PARTID'));
+				await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
+
+				await user.pointer({ keys: '[MouseRight]', target: headerText('PARTID') });
+				settle();
+				expect(screen.getByRole('menu')).toBeTruthy();
+				expect(screen.queryByRole('tooltip')).toBeNull();
+
+				await user.hover(headerText('NAME'));
+				settle();
+				expect(screen.queryByRole('tooltip')).toBeNull();
+			});
+
+			it('stays hidden on the right-clicked header after the menu closes, until the pointer leaves it', async () => {
+				let user = userEvent.setup({ delay: null });
+				renderTable({ columns: DETAILED_COLUMNS });
+
+				await user.hover(headerText('PARTID'));
+				await user.pointer({ keys: '[MouseRight]', target: headerText('PARTID') });
+				// Clicking the same header dismisses the menu without the pointer ever leaving it.
+				await user.click(headerText('PARTID'));
+				settle();
+				expect(screen.queryByRole('menu')).toBeNull();
+				expect(screen.queryByRole('tooltip')).toBeNull();
+
+				await user.unhover(headerText('PARTID'));
+				await user.hover(headerText('PARTID'));
+				await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
+			});
+		});
+
+		it('leaves a fixed heading with no details alone', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+
+			await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Quantity') });
+
+			expect(screen.queryByRole('menu')).toBeNull();
 		});
 	});
 });

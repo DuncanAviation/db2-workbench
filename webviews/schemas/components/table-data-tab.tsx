@@ -9,6 +9,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { SystemColumn } from '../../../src/models/system-column';
 import type { Row } from '../../../src/interfaces/row';
 import type { SchemasInboundMessage } from '../../../src/webview-messages/schemas-messages';
+import { ColumnDetailsUtils } from '../../../src/utils/column-details';
 import { ColumnNameUtils } from '../../../src/utils/column-name-utils';
 import { FieldUtils } from '../../../src/utils/field-utils';
 import type { DbErrorUtils } from '../../../src/utils/db-error-utils';
@@ -195,6 +196,9 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 	const lobColumns = useMemo(() => new Set(columns.filter(column => FieldUtils.isLobType(column.dataType)).map(column => column.systemName)), [columns]);
 	const numericColumns = useMemo(() => new Set(columns.filter(column => FieldUtils.isNumericType(column.dataType)).map(column => column.systemName)), [columns]);
 	const columnKeys = useMemo(() => columns.map(column => column.systemName), [columns]);
+	// Each header's tooltip and copy menu, straight from the catalog columns this tab already holds. No
+	// Primary Key line: keyColumns may be the identity column standing in for the key, not the real one.
+	const columnDetails = useMemo(() => Object.fromEntries(columns.map(column => [column.systemName, ColumnDetailsUtils.fromSystemColumn(column)])), [columns]);
 	const searchableColumns = useMemo(() => columns.filter(column => !FieldUtils.isLobType(column.dataType)), [columns]);
 
 	// This tab's own pending statements - RunSqlPanel's list can span multiple open tables at once.
@@ -689,9 +693,10 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 			renderLobCell: (byteLength: unknown): ReactNode => (
 				<Typography component="span" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>{formatByteLength(byteLength)}</Typography>
 			),
-			numericColumns
+			numericColumns,
+			columnDetails
 		}),
-		[columnKeys, columnLabels, columnWidths, lobColumns, numericColumns]
+		[columnKeys, columnLabels, columnWidths, lobColumns, numericColumns, columnDetails]
 	);
 
 	// Kept out of webviews/shared/utils/row-columns.tsx (unlike buildRowColumns, still used above for
@@ -718,7 +723,7 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 				id: column.systemName,
 				size: columnWidths[column.systemName],
 				enableSorting: !isLob,
-				meta: isNumeric ? { align: 'right' } : undefined,
+				meta: { align: isNumeric ? 'right' : undefined, details: columnDetails[column.systemName] },
 				accessorFn: (row: Row) => row[column.systemName],
 				header: () => (
 					<div>
@@ -793,7 +798,7 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 		// Deliberately excludes pendingStatements-derived state (nonInsertStatements/insertStatements) -
 		// see liveRef above. Only column *metadata* (shape/labels/widths) should ever recreate these
 		// cell functions.
-	}, [columns, columnLabels, columnWidths]);
+	}, [columns, columnLabels, columnWidths, columnDetails]);
 
 	const columnDefs = editMode ? editableColumnDefs : readOnlyColumnDefs;
 

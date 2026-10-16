@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Box, Tooltip } from '@mui/material';
+import { Box } from '@mui/material';
 import { keyframes } from '@emotion/react';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
@@ -12,8 +12,10 @@ import type { NodeProps } from '@xyflow/react';
 import type { DiagramColumn, DiagramTable, MissingRelationshipTarget } from '../../../src/webview-messages/diagram-messages';
 import { TABLE_MIDDLE_HANDLE_ID } from '../../../src/diagram/diagram-edge-routing';
 import { columnDisplayName, columnTooltipLines } from '../../../src/diagram/diagram-column-labels';
-import type { ColumnIndexMembership, ColumnTooltipLine, ForeignKeyTarget } from '../../../src/diagram/diagram-column-labels';
+import type { ColumnIndexMembership, ForeignKeyTarget } from '../../../src/diagram/diagram-column-labels';
 import { ImportBadge } from '../../shared/components/import-badge';
+import { MenuAwareTooltip } from '../../shared/components/menu-aware-tooltip';
+import { TooltipLines } from '../../shared/components/tooltip-lines';
 import type { ImportBadgeKind } from '../../shared/components/import-badge';
 import { COLUMN_ICON_COLOR, HIGHLIGHT_COLOR, IMPORT_COLOR } from '../diagram-colors';
 import { DESCRIPTION_HEIGHT, headerHeight, HEADER_PADDING_Y, ROW_HEIGHT, tableHeight, TABLE_WIDTH, TITLE_LINE_HEIGHT } from '../layout-constants';
@@ -175,7 +177,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 
 			{expanded ? (
 				<>
-					<Tooltip title={tableTooltip} placement="top">
+					<MenuAwareTooltip title={tableTooltip} placement="top">
 						<Box className={TABLE_DRAG_HANDLE_CLASS} sx={{px: 1, py: `${HEADER_PADDING_Y}px`, backgroundColor: color, color: '#fff'}}>
 							<Box sx={{display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 0.5}}>
 								{/* lineHeight pinned to TITLE_LINE_HEIGHT for the same reason as the description Box below -
@@ -202,7 +204,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 								<Box sx={{fontSize: '0.7rem', lineHeight: `${DESCRIPTION_HEIGHT}px`, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{table.description}</Box>
 							)}
 						</Box>
-					</Tooltip>
+					</MenuAwareTooltip>
 
 					<Box>
 						{table.columns.map(column => (
@@ -230,7 +232,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 				// schema's own zoomed-out summary box (schema-group-node.tsx), just filled with this table's
 				// own header color instead of a translucent tint, so it still reads as "this table" rather
 				// than "this schema".
-				<Tooltip title={tableTooltip} placement="top">
+				<MenuAwareTooltip title={tableTooltip} placement="top">
 					<Box
 						className={TABLE_DRAG_HANDLE_CLASS}
 						sx={{
@@ -251,7 +253,7 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 							<Box sx={{width: '100%', fontSize: '1.15rem', fontWeight: 400, opacity: 0.85, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{table.description}</Box>
 						)}
 					</Box>
-				</Tooltip>
+				</MenuAwareTooltip>
 			)}
 
 			{/* Always rendered, regardless of `expanded` - unlike the per-column handles above (which
@@ -304,6 +306,8 @@ function ColumnRow({
 	let row = (
 		<Box
 			onClick={handleClick}
+			// What app.tsx's node right-click handler reads to tell a column row from the header.
+			data-column-name={column.name}
 			sx={{
 				position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 0.5,
 				height: ROW_HEIGHT, px: 1, cursor: 'pointer',
@@ -366,16 +370,16 @@ function ColumnRow({
 
 	let tooltipLines = columnTooltipLines(column, foreignKeyTargets, uniquePartners, indexes);
 
-	// Skipped entirely for a column with none of the three name forms, no identity flag, and no foreign
+	// Skipped entirely for a column with none of the three name forms, no type, no flags, and no foreign
 	// key - an empty tooltip box would just be a hover delay with nothing to show for it.
 	if(tooltipLines.length === 0) {
 		return row;
 	}
 
 	return (
-		<Tooltip placement="right" title={<TooltipLines lines={tooltipLines} />}>
+		<MenuAwareTooltip placement="right" title={<TooltipLines lines={tooltipLines} />}>
 			{row}
-		</Tooltip>
+		</MenuAwareTooltip>
 	);
 }
 
@@ -384,21 +388,6 @@ function ColumnRow({
 // consistently across every column rather than one that reorders itself per row.
 function columnIndicatorText(column: DiagramColumn): string {
 	return [column.notNull && 'NN', column.unique && 'U', column.indexed && 'I'].filter((flag): flag is string => !!flag).join(', ');
-}
-
-// Shared by a column's own tooltip (name forms, Identity, Foreign Key) and the table's tooltip (Columns,
-// Foreign Keys counts, appended after its own plain description line) - one rendering so the two can't
-// visually drift apart.
-function TooltipLines({lines}: {lines: ColumnTooltipLine[]}) {
-	return (
-		<Box sx={{display: 'flex', flexDirection: 'column', gap: 0.25}}>
-			{lines.map((line, index) => (
-				<Box key={`${line.label}-${index}`} sx={{fontSize: '0.7rem'}}>
-					<Box component="span" sx={{fontWeight: 600}}>{line.label}:</Box> {line.value}
-				</Box>
-			))}
-		</Box>
-	);
 }
 
 // Same two explanations the schema browser's own badge tooltip gives (table-detail.tsx's
@@ -496,11 +485,11 @@ function MissingTargetIcon({target, onClick}: {target: MissingRelationshipTarget
 		: `Add ${target.targets.length} referenced tables to the diagram`;
 
 	return (
-		<Tooltip title={title} placement="right">
+		<MenuAwareTooltip title={title} placement="right">
 			<Box onClick={handleClick} sx={{display: 'flex', color: COLUMN_ICON_COLOR}}>
 				<AddLinkIcon sx={{fontSize: 12}} />
 			</Box>
-		</Tooltip>
+		</MenuAwareTooltip>
 	);
 }
 

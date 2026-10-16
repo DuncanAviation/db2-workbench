@@ -9,6 +9,7 @@ import { postFromHost } from '../test-support/host-messages';
 import { renderWebview } from '../test-support/render-webview';
 import { postedMessages } from '../test-support/vscode-api-stub';
 import { TABLE_ROW_DRAG_MIME_TYPE } from '../shared/components/schema-tree';
+import { TOOLTIP_ENTER_DELAY_MS } from '../shared/theme/create-vscode-theme';
 import { TABLE_DRAG_HANDLE_CLASS } from './components/table-node';
 import { App } from './app';
 
@@ -352,6 +353,69 @@ describe('diagram webview', () => {
 
 			expect(isDimmed('PARTS.PART')).toBe(false);
 			expect(isDimmed('SALES.CUSTOMER')).toBe(false);
+		});
+
+		it('a right-click on a table header offers to copy the table name', async () => {
+			let user = userEvent.setup();
+			await renderDiagram();
+			await navigator.clipboard.writeText('untouched');
+
+			fireEvent.contextMenu(tableHeader('SALES.ORDERS'));
+
+			expect(screen.queryByRole('menuitem', { name: 'Copy Long Name' })).toBeNull();
+			await user.click(screen.getByRole('menuitem', { name: 'Copy Name' }));
+			expect(await navigator.clipboard.readText()).toBe('ORDERS');
+		});
+
+		it('a right-click on a column offers to copy its name forms, above the table actions', async () => {
+			let user = userEvent.setup();
+			await renderDiagram();
+			await navigator.clipboard.writeText('untouched');
+
+			fireEvent.contextMenu(within(requireTableNode('SALES.ORDERS')).getByText('CUSNO'));
+
+			let items = screen.getAllByRole('menuitem').map(item => item.textContent);
+			expect(items.slice(0, 3)).toEqual(['Copy Name', 'Copy Long Name', 'Copy Description']);
+			expect(items).toContain('Remove');
+
+			await user.click(screen.getByRole('menuitem', { name: 'Copy Long Name' }));
+			expect(await navigator.clipboard.readText()).toBe('CUSTOMER_NUMBER');
+
+			fireEvent.contextMenu(within(requireTableNode('SALES.ORDERS')).getByText('CUSNO'));
+			await user.click(screen.getByRole('menuitem', { name: 'Copy Name' }));
+			expect(await navigator.clipboard.readText()).toBe('CUSNO');
+		});
+
+		it('a right-click hides the tooltip of the column it lands on', async () => {
+			let user = userEvent.setup();
+			await renderDiagram();
+			let cell = within(requireTableNode('SALES.ORDERS')).getByText('CUSNO');
+
+			await user.hover(cell);
+			await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
+
+			fireEvent.contextMenu(cell);
+
+			expect(screen.getByRole('menu')).toBeTruthy();
+			await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+		});
+
+		// MUI only reports a tooltip closing when it thinks it's open, and every tooltip is held shut while
+		// the menu is: columns the pointer crossed then must not all open at once when the menu closes.
+		it('opens no tooltips for columns crossed while the menu was open, once it closes', async () => {
+			let user = userEvent.setup();
+			await renderDiagram();
+			let orders = within(requireTableNode('SALES.ORDERS'));
+
+			fireEvent.contextMenu(orders.getByText('CUSNO'));
+			await user.hover(orders.getByText('ORDNO'));
+			await user.hover(within(requireTableNode('SALES.CUSTOMER')).getByText('CUSNO'));
+			await new Promise(resolve => setTimeout(resolve, TOOLTIP_ENTER_DELAY_MS + 100));
+
+			await user.click(orders.getByText('ORDNO'));
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			expect(screen.queryAllByRole('tooltip').length).toBeLessThanOrEqual(1);
 		});
 
 		it('a table\'s context menu opens its schema, exports it, and removes it immediately', async () => {
