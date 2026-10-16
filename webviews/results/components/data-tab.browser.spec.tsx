@@ -54,9 +54,10 @@ describe('results DataTab in a real browser', () => {
 		expect(overflowing.map(header => header.textContent)).toEqual([]);
 	});
 
-	// A fixed-layout table spreads unused width across every column, which made a short column (a
-	// DECIMAL(9,0) key, say) far wider than its content. Only the last column takes the spare room now.
-	it('gives the spare width to the last column only, when the columns don\'t fill the panel', () => {
+	// A fixed-layout table spreads unused width across its columns, which made a short column (a
+	// DECIMAL(9,0) key, say) far wider than its content, and a right-aligned number far from its header.
+	// The table is now only as wide as its columns.
+	it('stops at its last column, leaving the spare width empty, when the columns don\'t fill the panel', () => {
 		let narrowColumns = ['PARTNO', 'QTY', 'NOTES'];
 		renderWebview(<DataTab session={{ ...session(), columns: narrowColumns, columnLabels: {}, rows: [{ PARTNO: 'A100', QTY: 5, NOTES: 'Hex bolt' }] }} />);
 
@@ -65,12 +66,14 @@ describe('results DataTab in a real browser', () => {
 		let widths = within(head).getAllByRole('columnheader').map(header => header.getBoundingClientRect().width);
 		let containerWidth = (table.parentElement as HTMLElement).clientWidth;
 
-		// Each of the first two is its own measured width - header text, sort icon and padding, well under
-		// a third of the 1200px viewport each would get if the room were shared out.
+		// Each is its own measured width - header text, sort icon and padding, well under a third of the
+		// 1200px viewport each would get if the room were shared out - the last one included.
 		expect(widths[0]).toBeLessThan(150);
 		expect(widths[1]).toBeLessThan(150);
-		// The last fills the rest, and the table fits the panel exactly - nothing to scroll sideways.
-		expect(widths[2]).toBeGreaterThan(containerWidth - 300);
-		expect(Math.abs(table.getBoundingClientRect().width - containerWidth)).toBeLessThan(1);
+		expect(widths[2]).toBeLessThan(150);
+		// The table ends where its columns do, well short of the panel's edge.
+		let tableWidth = table.getBoundingClientRect().width;
+		expect(Math.abs(tableWidth - widths.reduce((total, width) => total + width, 0))).toBeLessThan(2);
+		expect(tableWidth).toBeLessThan(containerWidth / 2);
 	});
 });

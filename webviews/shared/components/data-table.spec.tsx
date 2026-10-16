@@ -136,6 +136,16 @@ describe('DataTable', () => {
 			}
 		});
 
+		it('draws a line between columns, on each cell but the first, in headers and body alike', () => {
+			renderTable();
+
+			let rows = [headerCells(), ...bodyRows().map(row => within(row).getAllByRole('cell'))];
+
+			for (let cells of rows) {
+				expect(cells.map(cell => getComputedStyle(cell).borderLeftStyle === 'solid')).toEqual([false, true, true]);
+			}
+		});
+
 		it('with maxCellWidth, truncates with an ellipsis and puts the full value in a title', () => {
 			renderTable({ maxCellWidth: 120, data: [{ id: 1, name: 'A very long part description', quantity: 5 }] });
 
@@ -200,6 +210,48 @@ describe('DataTable', () => {
 			expect(selected).not.toBe(even);
 			expect(selected).not.toBe(odd);
 			expect(backgroundOf(bodyRows()[0])).toBe(even);
+		});
+	});
+
+	// The colors VS Code's own Keyboard Shortcuts table uses, read from the theme the webview is handed.
+	// Set on the body the way VS Code sets them, before the theme reads them at render.
+	describe('VS Code table colors', () => {
+		const TOKENS: Record<string, string> = {
+			'--vscode-editor-background': '#ffffff',
+			'--vscode-keybindingTable-rowsBackground': '#ff000080',
+			'--vscode-keybindingTable-headerBackground': '#0000ff80',
+			'--vscode-tree-tableColumnsBorder': '#00ff00'
+		};
+
+		beforeEach(() => {
+			for (let [name, value] of Object.entries(TOKENS)) {
+				document.body.style.setProperty(name, value);
+			}
+		});
+
+		afterEach(() => {
+			for (let name of Object.keys(TOKENS)) {
+				document.body.style.removeProperty(name);
+			}
+		});
+
+		it('stripes rows and fills the header with them, flattened to opaque colors', () => {
+			renderTable();
+
+			// Half-transparent red and blue, flattened over the white background.
+			expect(bodyRows().map(backgroundOf)).toEqual(['rgb(255, 255, 255)', 'rgb(255, 127, 127)', 'rgb(255, 255, 255)', 'rgb(255, 127, 127)']);
+			expect(headerCells().map(cell => getComputedStyle(cell).backgroundColor)).toEqual(Array(3).fill('rgb(127, 127, 255)'));
+		});
+
+		it('draws column lines in the column border color, and no line between rows', () => {
+			renderTable();
+
+			let cells = within(bodyRows()[0]).getAllByRole('cell');
+
+			expect(getComputedStyle(cells[1]).borderLeftColor).toBe('rgb(0, 255, 0)');
+			for (let cell of [...headerCells(), ...cells]) {
+				expect(getComputedStyle(cell).borderBottomWidth).toMatch(/^0(px)?$/);
+			}
 		});
 	});
 

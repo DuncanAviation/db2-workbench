@@ -19,6 +19,8 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 
 - The diagram's column tooltip now shows the column's type.
 - Tooltips throughout the extension wait half a second before showing, like VS Code's own hovers, instead of appearing almost immediately.
+- Data grids take their look from VS Code's own tables: the row stripes, header background and column lines use the same theme colors as the Keyboard Shortcuts editor, with no line between rows.
+- The results grid and the Data tab are only as wide as their columns, instead of stretching the last column across the rest of the panel.
 
 ## [0.1.0] - 2026-10-12
 

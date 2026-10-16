@@ -2,12 +2,34 @@ import type { Theme } from '@mui/material/styles';
 import { createTheme } from '@mui/material/styles';
 import type { VsCodeThemeKind } from './use-vscode-theme-kind';
 
+/** The colors VS Code's own tables use (the Keyboard Shortcuts editor), for DataTable to match them. */
+export interface DataTablePalette {
+	/** Every other row's background - translucent, laid over the row's own background. */
+	stripe: string;
+	/** The header row's background - translucent, like stripe. */
+	header: string;
+	/** The line between columns. */
+	columnBorder: string;
+}
+
+declare module '@mui/material/styles' {
+	interface Palette {
+		/** Optional so a plain createTheme() (a test's, say) still type-checks; DataTable falls back without it. */
+		dataTable?: DataTablePalette;
+	}
+
+	interface PaletteOptions {
+		dataTable?: DataTablePalette;
+	}
+}
+
 /** How long the pointer must rest on something before its tooltip shows - see MuiTooltip below. */
 export const TOOLTIP_ENTER_DELAY_MS = 500;
 
 export function createVsCodeTheme(themeKind: VsCodeThemeKind): Theme {
 	const mode = themeKind === 'light' || themeKind === 'high-contrast-light' ? 'light' : 'dark';
 	const isLight = mode === 'light';
+	const isHighContrast = themeKind === 'high-contrast' || themeKind === 'high-contrast-light';
 
 	// Resolves a --vscode-* custom property to its current computed color value (e.g. "#0e639c").
 	// MUI palette colors get passed through alpha()/decomposeColor() at render time (Button hover/focus
@@ -19,9 +41,35 @@ export function createVsCodeTheme(themeKind: VsCodeThemeKind): Theme {
 		return value || fallback;
 	}
 
+	// The first of several --vscode-* properties that's set - for a token VS Code itself defaults to another.
+	function readFirst(names: string[], fallback: string): string {
+		const style = getComputedStyle(document.body);
+
+		for (const name of names) {
+			const value = style.getPropertyValue(name).trim();
+
+			if (value) {
+				return value;
+			}
+		}
+
+		return fallback;
+	}
+
+	// VS Code's own defaults, used only when a theme leaves the token unset: its foreground at 4% for the
+	// stripes and header, at 12.5% for column lines. High contrast themes stripe nothing, so neither does
+	// this - a fully transparent color rather than 'transparent', which MUI's color helpers can't parse.
+	const tableTint = isHighContrast ? 'rgba(0, 0, 0, 0)' : isLight ? '#6161610a' : '#cccccc0a';
+	const tableStripe = readFirst(['--vscode-keybindingTable-rowsBackground', '--vscode-tree-tableOddRowsBackground'], tableTint);
+
 	return createTheme({
 		palette: {
 			mode,
+			dataTable: {
+				stripe: tableStripe,
+				header: readFirst(['--vscode-keybindingTable-headerBackground', '--vscode-tree-tableOddRowsBackground'], tableTint),
+				columnBorder: readFirst(['--vscode-tree-tableColumnsBorder', '--vscode-contrastBorder'], isLight ? '#61616120' : '#cccccc20'),
+			},
 			background: {
 				default: read('--vscode-editor-background', '#1e1e1e', '#ffffff'),
 				paper: read('--vscode-editor-background', '#1e1e1e', '#ffffff'),
