@@ -16,7 +16,7 @@ import { ResolvedColumn, ResolvedForeignKey, ResolvedIndex, ResolvedTable, Resol
 // than fabricating DB2 facts the diagram was never told, per the user's own framing: export what we can,
 // not everything the formats could in principle hold.
 
-// The inverse of diagram-resolved-table.ts's formatColumnType ("CHAR(10)", "DECIMAL(7,2)", or a bare
+// The inverse of ColumnDetailsUtils.formatType ("CHAR(10)", "DECIMAL(7,2)", or a bare
 // "INTEGER") - needed because the format converters branch on the DECOMPOSED fields (mapColumnType's
 // exact-match switch in frictionless-format.ts, columnTypeText's precision-then-length fallback in
 // dbml-format.ts), not on the combined display string. Passing the combined string through as `dataType`

@@ -26,12 +26,15 @@ import type { Virtualizer } from '@tanstack/react-virtual';
 import type { MouseEvent, ReactNode, RefObject, UIEvent } from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Row as DataRow } from '../../../src/interfaces/row';
+import type { ColumnDetails } from '../../../src/utils/column-details';
+import { ColumnDetailsUtils } from '../../../src/utils/column-details';
 import type { ExportDestination, ExportFormat, ExportWhat } from '../../../src/utils/export-utils';
 import { ExportUtils } from '../../../src/utils/export-utils';
 import type { ButtonGroupAction } from './button-group';
 import { ButtonGroup, flattenActions } from './button-group';
 import { ContextMenu } from './context-menu';
 import { ExportDialog } from './export-dialog';
+import { TooltipLines } from './tooltip-lines';
 
 declare module '@tanstack/react-table' {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -39,6 +42,10 @@ declare module '@tanstack/react-table' {
 		/** Horizontal alignment of the column's body cells - 'right' for a numeric column, so its digits
 		 * line up. Headers always stay left-aligned. Omitted means MUI's default (left). */
 		align?: 'left' | 'right';
+		/** What the column's header tooltip and its Copy Name / Copy Long Name / Copy Description
+		 * right-click menu describe - set for a column that is a database column (the results grid, the
+		 * schema browser's Data tab), never for a fixed heading like the Columns tab's "Type". */
+		details?: ColumnDetails;
 	}
 }
 
@@ -195,6 +202,15 @@ const ACTIONS_CELL_SX = {
 } as const;
 
 const ACTIONS_COLUMN_WIDTH = 48;
+
+// A database column header's right-click menu. "Name" is DB2's short system name, the one hand-written SQL
+// against these files mostly uses. An item the column has no value for (a computed column has no short
+// name or description) is shown disabled rather than left out, so the menu always reads the same.
+const HEADER_COPY_ITEMS: { label: string; value: (details: ColumnDetails) => string | undefined }[] = [
+	{ label: 'Copy Name', value: details => details.shortName },
+	{ label: 'Copy Long Name', value: details => details.longName },
+	{ label: 'Copy Description', value: details => details.description }
+];
 
 // theme.palette.action.hover is a translucent overlay color (e.g. rgba(0,0,0,0.04)), meant to be
 // laid over a background once. That's fine for a plain zebra-striped cell, but the actions column
@@ -416,6 +432,7 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 	const [globalFilter, setGlobalFilter] = useState('');
 	const [rowMenuState, setRowMenuState] = useState<{ anchorEl: HTMLElement; targetRows: TData[] } | null>(null);
 	const [contextMenuState, setContextMenuState] = useState<{ mouseX: number; mouseY: number; targetRows: TData[]; cell?: { row: TData; columnId: string } } | null>(null);
+	const [headerMenuState, setHeaderMenuState] = useState<{ mouseX: number; mouseY: number; details: ColumnDetails } | null>(null);
 	const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
 	// Refresh and Export are default actions: Export is always available (but disabled with nothing
@@ -550,6 +567,19 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 
 	function handleContextMenuClose() {
 		setContextMenuState(null);
+	}
+
+	// Replaces the webview's own Cut/Copy/Paste menu on a database column's header, which has nothing
+	// selectable to copy there anyway.
+	function handleHeaderContextMenu(event: MouseEvent<HTMLTableCellElement>, details: ColumnDetails) {
+		event.preventDefault();
+		setRowMenuState(null);
+		setContextMenuState(null);
+		setHeaderMenuState({ mouseX: event.clientX, mouseY: event.clientY, details });
+	}
+
+	function handleHeaderMenuClose() {
+		setHeaderMenuState(null);
 	}
 
 	function handleExportDialogClose() {
@@ -691,21 +721,37 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 					<TableHead>
 						{table.getHeaderGroups().map(headerGroup => (
 							<TableRow key={headerGroup.id}>
-								{headerGroup.headers.map(header => (
-									<TableCell key={header.id} sx={cellSx}>
-										{header.column.getCanSort() ? (
-											<TableSortLabel
-												active={header.column.getIsSorted() !== false}
-												direction={header.column.getIsSorted() || 'asc'}
-												onClick={header.column.getToggleSortingHandler()}
-											>
-												{flexRender(header.column.columnDef.header, header.getContext())}
-											</TableSortLabel>
-										) : (
-											flexRender(header.column.columnDef.header, header.getContext())
-										)}
-									</TableCell>
-								))}
+								{headerGroup.headers.map(header => {
+									let details = header.column.columnDef.meta?.details;
+									let detailLines = details ? ColumnDetailsUtils.lines(details) : [];
+									let content = header.column.getCanSort() ? (
+										<TableSortLabel
+											active={header.column.getIsSorted() !== false}
+											direction={header.column.getIsSorted() || 'asc'}
+											onClick={header.column.getToggleSortingHandler()}
+										>
+											{flexRender(header.column.columnDef.header, header.getContext())}
+										</TableSortLabel>
+									) : (
+										flexRender(header.column.columnDef.header, header.getContext())
+									);
+
+									return (
+										<TableCell
+											key={header.id}
+											sx={cellSx}
+											onContextMenu={details ? event => handleHeaderContextMenu(event, details) : undefined}
+										>
+											{/* A span, since a Tooltip needs one element to listen on and a sortable header's
+											content is a TableSortLabel while a plain one's is whatever the column renders. */}
+											{detailLines.length > 0 ? (
+												<Tooltip title={<TooltipLines lines={detailLines} />} placement="bottom-start">
+													<span>{content}</span>
+												</Tooltip>
+											) : content}
+										</TableCell>
+									);
+								})}
 
 								{hasRowActions && (
 									<TableCell sx={{ ...ACTIONS_CELL_SX, bgcolor: theme.palette.background.paper }} />
@@ -796,6 +842,28 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 				{renderActionMenuItems(resolvedContextRowActions, handleContextMenuClose)}
 				{hasRowActions && hasTableActions && <Divider />}
 				{renderActionMenuItems(resolvedTableActions, handleContextMenuClose)}
+			</ContextMenu>
+
+			<ContextMenu position={headerMenuState} onClose={handleHeaderMenuClose}>
+				{HEADER_COPY_ITEMS.map(item => {
+					let value = headerMenuState ? item.value(headerMenuState.details) : undefined;
+
+					return (
+						<MenuItem
+							key={item.label}
+							disabled={value == null || value.trim() === ''}
+							onClick={() => {
+								handleHeaderMenuClose();
+
+								if (value != null) {
+									void navigator.clipboard.writeText(value);
+								}
+							}}
+						>
+							{item.label}
+						</MenuItem>
+					);
+				})}
 			</ContextMenu>
 
 			<ExportDialog

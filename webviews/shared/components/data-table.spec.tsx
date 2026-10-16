@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import type { ColumnDef, RowSelectionState, SortingState } from '@tanstack/react-table';
@@ -600,6 +600,60 @@ describe('DataTable', () => {
 
 			rerender(PARTS.map(part => part.id === 2 ? { ...part, name: 'Lock washer' } : part));
 			expect(renders).toEqual([1, 2, 3, 4]);
+		});
+	});
+
+	describe('database column headers', () => {
+		const DETAILED_COLUMNS: ColumnDef<Part>[] = [
+			{ id: 'id', accessorKey: 'id', header: 'PARTID', meta: { details: { shortName: 'PARTID', longName: 'PART_IDENTIFIER', description: 'Part Identifier', type: 'INTEGER', notNull: true } } },
+			{ id: 'name', accessorKey: 'name', header: 'NAME', meta: { details: { longName: 'NAME', type: 'VARCHAR(50)' } } },
+			{ id: 'quantity', accessorKey: 'quantity', header: 'Quantity' }
+		];
+
+		it('shows the column names, type and known flags when its header is hovered', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+
+			await user.hover(screen.getByText('PARTID'));
+
+			let tooltip = await screen.findByRole('tooltip');
+			expect(tooltip.textContent).toContain('Short Name: PARTID');
+			expect(tooltip.textContent).toContain('Long Name: PART_IDENTIFIER');
+			expect(tooltip.textContent).toContain('Description: Part Identifier');
+			expect(tooltip.textContent).toContain('Type: INTEGER');
+			expect(tooltip.textContent).toContain('Not Null: Yes');
+		});
+
+		it('copies the chosen name form from the header right-click menu', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+			await navigator.clipboard.writeText('untouched');
+
+			await user.pointer({ keys: '[MouseRight]', target: screen.getByText('PARTID') });
+			await user.click(screen.getByRole('menuitem', { name: 'Copy Long Name' }));
+
+			expect(await navigator.clipboard.readText()).toBe('PART_IDENTIFIER');
+			await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+		});
+
+		it('disables a copy item the column has no value for', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+
+			await user.pointer({ keys: '[MouseRight]', target: screen.getByText('NAME') });
+
+			expect(screen.getByRole('menuitem', { name: 'Copy Name' }).getAttribute('aria-disabled')).toBe('true');
+			expect(screen.getByRole('menuitem', { name: 'Copy Long Name' }).getAttribute('aria-disabled')).toBeNull();
+			expect(screen.getByRole('menuitem', { name: 'Copy Description' }).getAttribute('aria-disabled')).toBe('true');
+		});
+
+		it('leaves a fixed heading with no details alone', async () => {
+			let user = userEvent.setup();
+			renderTable({ columns: DETAILED_COLUMNS });
+
+			await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Quantity') });
+
+			expect(screen.queryByRole('menu')).toBeNull();
 		});
 	});
 });

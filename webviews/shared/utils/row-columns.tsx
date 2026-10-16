@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Typography } from '@mui/material';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { Row } from '../../../src/interfaces/row';
+import type { ColumnDetails } from '../../../src/utils/column-details';
 import { ColumnNameUtils } from '../../../src/utils/column-name-utils';
 
 const MAX_CELL_WIDTH = 300;
@@ -68,6 +69,9 @@ export interface BuildRowColumnsOptions {
 	// Columns whose body cells are right-aligned (headers stay left-aligned), so their digits line up - see
 	// FieldUtils.isNumericType. Omit to leave every column left-aligned.
 	numericColumns?: Set<string>;
+	// Per column key, what its header's tooltip and Copy Name / Copy Long Name / Copy Description menu
+	// describe (see DataTable's ColumnMeta.details). A key with no entry gets neither.
+	columnDetails?: Record<string, ColumnDetails>;
 }
 
 export function buildRowColumns(columns: string[], columnLabels: Record<string, string[]>, columnWidths: Record<string, number>, options?: BuildRowColumnsOptions): ColumnDef<Row>[] {
@@ -82,7 +86,10 @@ export function buildRowColumns(columns: string[], columnLabels: Record<string, 
 			// sorting/searching by that placeholder wouldn't be meaningful. No-op for consumers (e.g.
 			// the results grid) that never mark any column as LOB.
 			enableSorting: !isLob,
-			meta: options?.numericColumns?.has(col) ? { align: 'right' } : undefined,
+			meta: {
+				align: options?.numericColumns?.has(col) ? 'right' : undefined,
+				details: options?.columnDetails?.[col]
+			},
 			// accessorFn (exact key lookup) instead of accessorKey - accessorKey treats a "." in the
 			// key as a nested-path separator, so a real DB2 column name containing one (e.g. an
 			// unaliased qualified column/expression) would resolve to undefined instead of its value.

@@ -1,7 +1,7 @@
 import { ResolvedColumn, ResolvedForeignKey as SchemaResolvedForeignKey, ResolvedTable as SchemaResolvedTable, ResolvedTableKey } from '../schema-conversion/schema-format-converter.js';
-import { SystemColumn } from '../models/system-column.js';
 import { groupByConstraint } from '../schema-conversion/formats/key-grouping.js';
 import { isUniqueIndex } from '../schema-conversion/formats/dbml-format.js';
+import { ColumnDetailsUtils } from '../utils/column-details.js';
 import { StringUtils } from '../utils/string-utils.js';
 import { DiagramColumn, DiagramTable } from '../webview-messages/diagram-messages.js';
 import { ResolvedForeignKey, ResolvedTable } from './diagram-add-tables.js';
@@ -201,7 +201,7 @@ function toDiagramColumn(column: ResolvedColumn): DiagramColumn {
 		// description to label with whatever the user configured. Gap-fill, never an override - a real
 		// heading always wins, exactly as table-resolver treats the same two fields.
 		...(description ? {description: description} : {}),
-		type: formatColumnType(column),
+		type: ColumnDetailsUtils.formatType(column),
 		primaryKey: false,
 		foreignKey: false,
 		identity: (column.identity ?? '').toUpperCase() === 'YES',
@@ -234,36 +234,4 @@ function toResolvedForeignKey(foreignKey: SchemaResolvedForeignKey, schema: stri
 		toTable: foreignKey.referencedTable,
 		toColumn: foreignKey.referencedColumnName ?? foreignKey.referencedSystemColumnName
 	};
-}
-
-/**
- * A compact `CHAR(10)` / `DECIMAL(7,2)` / `INTEGER` type label for a table row. The Columns tab shows
- * dataType, length, scale and precision as four separate sortable columns; a diagram row has one narrow
- * cell, so they're folded into the conventional DDL-style rendering instead.
- *
- * Takes just the four fields it reads rather than a whole SystemColumn, so a ResolvedColumn - where
- * every DB2-only field is optional, since an imported column can't honestly supply length/scale/
- * precision - formats through the same function.
- */
-export function formatColumnType(column: Partial<Pick<SystemColumn, 'dataType' | 'length' | 'scale' | 'precision'>>): string {
-	let dataType = (column.dataType ?? '').trim();
-
-	if(!dataType) {
-		return '';
-	}
-
-	// DECIMAL/NUMERIC report both, and scale 0 is meaningful there (DECIMAL(7,0) is not DECIMAL(7)), so
-	// it's included whenever a scale is present at all rather than only when non-zero.
-	if(column.scale !== undefined && column.scale !== null && isDecimalType(dataType)) {
-		return `${dataType}(${column.precision ?? column.length ?? 0},${column.scale})`;
-	}
-
-	// A length of 0 is what the catalog reports for types that have no length at all (DATE, INTEGER,
-	// TIMESTAMP), so it's treated as "no length" rather than printed as (0).
-	return column.length ? `${dataType}(${column.length})` : dataType;
-}
-
-function isDecimalType(dataType: string): boolean {
-	let normalized = dataType.toUpperCase();
-	return normalized === 'DECIMAL' || normalized === 'NUMERIC' || normalized === 'DEC' || normalized === 'DECFLOAT';
 }

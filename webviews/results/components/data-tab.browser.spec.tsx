@@ -29,6 +29,7 @@ function session(): ResultsSessionDetail {
 		rows: [row],
 		columns: COLUMNS,
 		columnLabels: { QUANTITY_ON_HAND: ['QUANTITY_ON_HAND', 'Quantity currently on hand'] },
+		columnDetails: {},
 		columnDataTypes: {},
 		procedureOutParameters: [],
 		isCursorOpen: false,

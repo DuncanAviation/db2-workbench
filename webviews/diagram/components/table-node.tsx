@@ -12,8 +12,9 @@ import type { NodeProps } from '@xyflow/react';
 import type { DiagramColumn, DiagramTable, MissingRelationshipTarget } from '../../../src/webview-messages/diagram-messages';
 import { TABLE_MIDDLE_HANDLE_ID } from '../../../src/diagram/diagram-edge-routing';
 import { columnDisplayName, columnTooltipLines } from '../../../src/diagram/diagram-column-labels';
-import type { ColumnIndexMembership, ColumnTooltipLine, ForeignKeyTarget } from '../../../src/diagram/diagram-column-labels';
+import type { ColumnIndexMembership, ForeignKeyTarget } from '../../../src/diagram/diagram-column-labels';
 import { ImportBadge } from '../../shared/components/import-badge';
+import { TooltipLines } from '../../shared/components/tooltip-lines';
 import type { ImportBadgeKind } from '../../shared/components/import-badge';
 import { COLUMN_ICON_COLOR, HIGHLIGHT_COLOR, IMPORT_COLOR } from '../diagram-colors';
 import { DESCRIPTION_HEIGHT, headerHeight, HEADER_PADDING_Y, ROW_HEIGHT, tableHeight, TABLE_WIDTH, TITLE_LINE_HEIGHT } from '../layout-constants';
@@ -366,7 +367,7 @@ function ColumnRow({
 
 	let tooltipLines = columnTooltipLines(column, foreignKeyTargets, uniquePartners, indexes);
 
-	// Skipped entirely for a column with none of the three name forms, no identity flag, and no foreign
+	// Skipped entirely for a column with none of the three name forms, no type, no flags, and no foreign
 	// key - an empty tooltip box would just be a hover delay with nothing to show for it.
 	if(tooltipLines.length === 0) {
 		return row;
@@ -384,21 +385,6 @@ function ColumnRow({
 // consistently across every column rather than one that reorders itself per row.
 function columnIndicatorText(column: DiagramColumn): string {
 	return [column.notNull && 'NN', column.unique && 'U', column.indexed && 'I'].filter((flag): flag is string => !!flag).join(', ');
-}
-
-// Shared by a column's own tooltip (name forms, Identity, Foreign Key) and the table's tooltip (Columns,
-// Foreign Keys counts, appended after its own plain description line) - one rendering so the two can't
-// visually drift apart.
-function TooltipLines({lines}: {lines: ColumnTooltipLine[]}) {
-	return (
-		<Box sx={{display: 'flex', flexDirection: 'column', gap: 0.25}}>
-			{lines.map((line, index) => (
-				<Box key={`${line.label}-${index}`} sx={{fontSize: '0.7rem'}}>
-					<Box component="span" sx={{fontWeight: 600}}>{line.label}:</Box> {line.value}
-				</Box>
-			))}
-		</Box>
-	);
 }
 
 // Same two explanations the schema browser's own badge tooltip gives (table-detail.tsx's
