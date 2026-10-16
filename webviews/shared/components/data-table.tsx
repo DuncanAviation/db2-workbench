@@ -433,6 +433,9 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 	const [rowMenuState, setRowMenuState] = useState<{ anchorEl: HTMLElement; targetRows: TData[] } | null>(null);
 	const [contextMenuState, setContextMenuState] = useState<{ mouseX: number; mouseY: number; targetRows: TData[]; cell?: { row: TData; columnId: string } } | null>(null);
 	const [headerMenuState, setHeaderMenuState] = useState<{ mouseX: number; mouseY: number; details: ColumnDetails } | null>(null);
+	// The header tooltips are controlled, so they can be held shut around the header menu - see isHeaderTooltipOpen.
+	const [hoveredHeaderId, setHoveredHeaderId] = useState<string | null>(null);
+	const [tooltipSuppressedHeaderId, setTooltipSuppressedHeaderId] = useState<string | null>(null);
 	const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
 	// Refresh and Export are default actions: Export is always available (but disabled with nothing
@@ -571,11 +574,20 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 
 	// Replaces the webview's own Cut/Copy/Paste menu on a database column's header, which has nothing
 	// selectable to copy there anyway.
-	function handleHeaderContextMenu(event: MouseEvent<HTMLTableCellElement>, details: ColumnDetails) {
+	function handleHeaderContextMenu(event: MouseEvent<HTMLTableCellElement>, headerId: string, details: ColumnDetails) {
 		event.preventDefault();
 		setRowMenuState(null);
 		setContextMenuState(null);
+		setTooltipSuppressedHeaderId(headerId);
 		setHeaderMenuState({ mouseX: event.clientX, mouseY: event.clientY, details });
+	}
+
+	// A tooltip sits above a menu (MUI's z-index 1500 vs 1300), so a header's tooltip would cover the
+	// copy menu whenever the pointer strayed back over a header. No header tooltip shows while that menu
+	// is open, nor on the right-clicked header until the pointer leaves it - otherwise dismissing the menu
+	// by clicking that same header pops the tooltip straight back.
+	function isHeaderTooltipOpen(headerId: string): boolean {
+		return hoveredHeaderId === headerId && headerMenuState == null && tooltipSuppressedHeaderId !== headerId;
 	}
 
 	function handleHeaderMenuClose() {
@@ -740,12 +752,19 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 										<TableCell
 											key={header.id}
 											sx={cellSx}
-											onContextMenu={details ? event => handleHeaderContextMenu(event, details) : undefined}
+											onContextMenu={details ? event => handleHeaderContextMenu(event, header.id, details) : undefined}
+											onMouseLeave={tooltipSuppressedHeaderId === header.id ? () => setTooltipSuppressedHeaderId(null) : undefined}
 										>
 											{/* A span, since a Tooltip needs one element to listen on and a sortable header's
 											content is a TableSortLabel while a plain one's is whatever the column renders. */}
 											{detailLines.length > 0 ? (
-												<Tooltip title={<TooltipLines lines={detailLines} />} placement="bottom-start">
+												<Tooltip
+													title={<TooltipLines lines={detailLines} />}
+													placement="bottom-start"
+													open={isHeaderTooltipOpen(header.id)}
+													onOpen={() => setHoveredHeaderId(header.id)}
+													onClose={() => setHoveredHeaderId(current => current === header.id ? null : current)}
+												>
 													<span>{content}</span>
 												</Tooltip>
 											) : content}

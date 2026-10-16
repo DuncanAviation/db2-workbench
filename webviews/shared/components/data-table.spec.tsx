@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import type { ColumnDef, RowSelectionState, SortingState } from '@tanstack/react-table';
 import { getCoreRowModel, getFilteredRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table';
+import { useFakeTimeouts } from '../../test-support/fake-timers';
 import { renderWebview } from '../../test-support/render-webview';
 import type { ExportCapability, FilterChip, RowActionsSource, TableAction } from './data-table';
 import { DataTable } from './data-table';
@@ -645,6 +646,65 @@ describe('DataTable', () => {
 			expect(screen.getByRole('menuitem', { name: 'Copy Name' }).getAttribute('aria-disabled')).toBe('true');
 			expect(screen.getByRole('menuitem', { name: 'Copy Long Name' }).getAttribute('aria-disabled')).toBeNull();
 			expect(screen.getByRole('menuitem', { name: 'Copy Description' }).getAttribute('aria-disabled')).toBe('true');
+		});
+
+		// MUI opens a tooltip after a delay and closes it through a transition, both on setTimeout - faked
+		// so a test can say no tooltip appeared, rather than only that one had not appeared yet.
+		describe('tooltip around the header menu', () => {
+			let restoreTimeouts: () => void;
+
+			beforeEach(() => {
+				restoreTimeouts = useFakeTimeouts();
+			});
+
+			afterEach(() => restoreTimeouts());
+
+			// The tooltip repeats the header's name, so look it up in the header row only - including while the
+			// menu is open, when MUI marks the rest of the page aria-hidden.
+			function headerText(text: string): HTMLElement {
+				let [head] = within(screen.getByRole('table', { hidden: true })).getAllByRole('rowgroup', { hidden: true });
+				return within(head).getByText(text);
+			}
+
+			function settle() {
+				act(() => {
+					vi.advanceTimersByTime(1000);
+				});
+			}
+
+			it('hides on right-click and stays hidden over any header while the menu is open', async () => {
+				let user = userEvent.setup({ delay: null });
+				renderTable({ columns: DETAILED_COLUMNS });
+
+				await user.hover(headerText('PARTID'));
+				await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
+
+				await user.pointer({ keys: '[MouseRight]', target: headerText('PARTID') });
+				settle();
+				expect(screen.getByRole('menu')).toBeTruthy();
+				expect(screen.queryByRole('tooltip')).toBeNull();
+
+				await user.hover(headerText('NAME'));
+				settle();
+				expect(screen.queryByRole('tooltip')).toBeNull();
+			});
+
+			it('stays hidden on the right-clicked header after the menu closes, until the pointer leaves it', async () => {
+				let user = userEvent.setup({ delay: null });
+				renderTable({ columns: DETAILED_COLUMNS });
+
+				await user.hover(headerText('PARTID'));
+				await user.pointer({ keys: '[MouseRight]', target: headerText('PARTID') });
+				// Clicking the same header dismisses the menu without the pointer ever leaving it.
+				await user.click(headerText('PARTID'));
+				settle();
+				expect(screen.queryByRole('menu')).toBeNull();
+				expect(screen.queryByRole('tooltip')).toBeNull();
+
+				await user.unhover(headerText('PARTID'));
+				await user.hover(headerText('PARTID'));
+				await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
+			});
 		});
 
 		it('leaves a fixed heading with no details alone', async () => {
