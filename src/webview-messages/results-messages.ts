@@ -1,5 +1,6 @@
 import { HistoryParameter } from '../interfaces/history-parameter.js';
 import { Row } from '../interfaces/row.js';
+import { ColumnDetails } from '../utils/column-details.js';
 import { DbErrorUtils } from '../utils/db-error-utils.js';
 import { ExportDestination, ExportFormat, ExportWhat } from '../utils/export-utils.js';
 
@@ -88,6 +89,10 @@ export interface ResultsSessionDetail {
 	rows: Row[];
 	columns: string[];
 	columnLabels: Record<string, string[]>;
+	/** What each column key's header tooltip and Copy Name / Copy Long Name / Copy Description menu say -
+	 * built from the same cached catalog columns as columnLabels, falling back to the driver's own column
+	 * definitions for a computed column. Never the result of a query of its own. */
+	columnDetails: Record<string, ColumnDetails>;
 	/** Column names DbResult.columns reported more than once for the current result set - see
 	 * DuplicateColumnChecker. When set, the row data has already silently collapsed to the last
 	 * matching column's values, so the Data tab shows a warning banner naming them. */

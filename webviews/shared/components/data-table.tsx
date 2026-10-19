@@ -26,12 +26,17 @@ import type { Virtualizer } from '@tanstack/react-virtual';
 import type { MouseEvent, ReactNode, RefObject, UIEvent } from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Row as DataRow } from '../../../src/interfaces/row';
+import type { ColumnDetails } from '../../../src/utils/column-details';
+import { ColumnDetailsUtils } from '../../../src/utils/column-details';
 import type { ExportDestination, ExportFormat, ExportWhat } from '../../../src/utils/export-utils';
 import { ExportUtils } from '../../../src/utils/export-utils';
 import type { ButtonGroupAction } from './button-group';
 import { ButtonGroup, flattenActions } from './button-group';
 import { ContextMenu } from './context-menu';
 import { ExportDialog } from './export-dialog';
+import { columnCopyMenuItems } from './column-copy-menu-items';
+import { ContextMenuOpenContext, MenuAwareTooltip } from './menu-aware-tooltip';
+import { TooltipLines } from './tooltip-lines';
 
 declare module '@tanstack/react-table' {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -39,6 +44,10 @@ declare module '@tanstack/react-table' {
 		/** Horizontal alignment of the column's body cells - 'right' for a numeric column, so its digits
 		 * line up. Headers always stay left-aligned. Omitted means MUI's default (left). */
 		align?: 'left' | 'right';
+		/** What the column's header tooltip and its Copy Name / Copy Long Name / Copy Description
+		 * right-click menu describe - set for a column that is a database column (the results grid, the
+		 * schema browser's Data tab), never for a fixed heading like the Columns tab's "Type". */
+		details?: ColumnDetails;
 	}
 }
 
@@ -184,22 +193,32 @@ interface Props<TData> {
 	exportColumnLabels?: Record<string, string[]>;
 }
 
-const CELL_SX = { whiteSpace: 'nowrap' } as const;
+// Laid out the way VS Code's own tables are (the Keyboard Shortcuts editor): no line between rows - the
+// stripes separate them - and a thin line between columns, in VS Code's own column border color (see
+// DataTablePalette). The line is on every cell's left edge but the first, so nothing doubles up against
+// the actions column's own left border, and the table has no outer border of its own.
+const columnBorderColor = (theme: Theme) => theme.palette.dataTable?.columnBorder ?? theme.palette.divider;
+
+const CELL_SX = {
+	whiteSpace: 'nowrap',
+	borderBottom: 0,
+	'&:not(:first-of-type)': { borderLeft: 1, borderLeftColor: columnBorderColor }
+} as const;
 
 const ACTIONS_CELL_SX = {
 	...CELL_SX,
 	position: 'sticky',
 	right: 0,
 	borderLeft: 1,
-	borderColor: 'divider'
+	borderLeftColor: columnBorderColor
 } as const;
 
 const ACTIONS_COLUMN_WIDTH = 48;
 
-// theme.palette.action.hover is a translucent overlay color (e.g. rgba(0,0,0,0.04)), meant to be
-// laid over a background once. That's fine for a plain zebra-striped cell, but the actions column
-// is `position: sticky` and sits on top of cells scrolling underneath it - a translucent
-// background there lets that underlying text bleed through. Flatten it against background.paper
+// The stripe and header colors (VS Code's, or MUI's action.hover without them) are translucent
+// overlays (e.g. rgba(0,0,0,0.04)), meant to be laid over a background once. That's fine for a plain
+// zebra-striped cell, but the actions column is `position: sticky` and sits on top of cells scrolling
+// underneath it - a translucent background there lets that underlying text bleed through. Flatten it against background.paper
 // up front so every cell (including the sticky one) gets a genuinely opaque color.
 function flattenOverlay(overlay: string, background: string): string {
 	const o = decomposeColor(overlay);
@@ -416,6 +435,7 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 	const [globalFilter, setGlobalFilter] = useState('');
 	const [rowMenuState, setRowMenuState] = useState<{ anchorEl: HTMLElement; targetRows: TData[] } | null>(null);
 	const [contextMenuState, setContextMenuState] = useState<{ mouseX: number; mouseY: number; targetRows: TData[]; cell?: { row: TData; columnId: string } } | null>(null);
+	const [headerMenuState, setHeaderMenuState] = useState<{ mouseX: number; mouseY: number; details: ColumnDetails } | null>(null);
 	const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
 	// Refresh and Export are default actions: Export is always available (but disabled with nothing
@@ -432,14 +452,19 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 	const hasTableActions = Boolean(allTableActions.length);
 	const hasAnyActions = hasRowActions || hasTableActions || cellActions != null;
 	const visibleLeafColumns = table.getVisibleLeafColumns();
-	// The fixed layout's minimum table width - see the <Table> below.
+	// The fixed layout's table width - see the <Table> below.
 	const fixedLayoutWidth = visibleLeafColumns.reduce((total, column) => total + column.getSize(), hasRowActions ? ACTIONS_COLUMN_WIDTH : 0);
 
 	const stripeColor = useMemo(
-		() => flattenOverlay(theme.palette.action.hover, theme.palette.background.paper),
+		() => flattenOverlay(theme.palette.dataTable?.stripe ?? theme.palette.action.hover, theme.palette.background.paper),
 		[theme]
 	);
 
+	// Opaque for the same reason as the stripes: the header is sticky, and rows scroll under it.
+	const headerColor = useMemo(
+		() => theme.palette.dataTable ? flattenOverlay(theme.palette.dataTable.header, theme.palette.background.paper) : theme.palette.background.paper,
+		[theme]
+	);
 	// theme.palette.action.selected is a very subtle overlay (meant not to compete with genuinely
 	// interactive controls) - too faint to read as "this row is selected" at a glance in a data
 	// table, so use a stronger tint of the primary color instead. Hover reuses the same hue at a
@@ -467,6 +492,8 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 		() => maxCellWidth ? { ...CELL_SX, maxWidth: maxCellWidth, overflow: 'hidden', textOverflow: 'ellipsis' } : CELL_SX,
 		[maxCellWidth]
 	);
+
+	const headerCellSx = useMemo(() => ({ ...cellSx, bgcolor: headerColor }), [cellSx, headerColor]);
 
 	// A memoized row (see rowRenderKey) keeps whatever props it last rendered with, so its event
 	// handlers go through this ref and always reach the current render's functions.
@@ -552,6 +579,19 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 		setContextMenuState(null);
 	}
 
+	// Replaces the webview's own Cut/Copy/Paste menu on a database column's header, which has nothing
+	// selectable to copy there anyway.
+	function handleHeaderContextMenu(event: MouseEvent<HTMLTableCellElement>, details: ColumnDetails) {
+		event.preventDefault();
+		setRowMenuState(null);
+		setContextMenuState(null);
+		setHeaderMenuState({ mouseX: event.clientX, mouseY: event.clientY, details });
+	}
+
+	function handleHeaderMenuClose() {
+		setHeaderMenuState(null);
+	}
+
 	function handleExportDialogClose() {
 		setExportDialogOpen(false);
 	}
@@ -610,7 +650,8 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 	const paddingBottom = virtualizer && virtualItems && virtualItems.length > 0 ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end : 0;
 	const columnCount = table.getVisibleFlatColumns().length + (hasRowActions ? 1 : 0);
 
-	return (
+	// Held in a variable so the provider can wrap it without reindenting the whole tree.
+	const body = (
 		<Stack sx={{ height: '100%', minHeight: 0, flexGrow: 1 }}>
 			<Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, p: 1 }}>
 				<TextField
@@ -663,26 +704,19 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 				<Table
 					stickyHeader
 					size="small"
-					// Deliberately leaves MUI's default width: 100% alone here - forcing width: auto instead
-					// (to make the table shrink-wrap to its <colgroup> widths) turned out to reintroduce the
-					// exact bug fixedLayout exists to prevent: an auto/shrink-to-fit width still runs its own
-					// content-based "preferred width" pass independent of table-layout's column-distribution
-					// algorithm, and with virtualization swapping which rows are actually in the DOM on every
-					// scroll tick, that preferred-width pass recomputes (and the table visibly resizes) on
-					// every tick too. width: 100% is a definite value, so no such recomputation ever happens -
-					// columns are sized purely from the colgroup below, full stop.
-					//
-					// A fixed table spreads any width its columns don't use across all of them, in proportion,
-					// which made every column wider than its content needs. So the last column's <col> has no
-					// width and takes the spare room alone, and the table is at least the sum of the measured
-					// widths - max() is still a definite value - so with no spare room that column keeps
-					// exactly its measured width rather than being squeezed to nothing.
-					style={fixedLayout ? { tableLayout: 'fixed', width: `max(100%, ${fixedLayoutWidth}px)` } : undefined}
+					// Exactly as wide as its columns, so a table narrower than the panel stops where its last
+					// column does instead of stretching one column across the spare room - a right-aligned
+					// number then sat far from its header. The width must stay a definite value: width: auto
+					// (shrink-to-fit) runs a content-based "preferred width" pass of its own, and with
+					// virtualization swapping which rows are in the DOM on every scroll tick, that pass
+					// recomputes and the table visibly resizes on every tick - the bug fixedLayout exists to
+					// prevent. A sum of the colgroup's widths is definite, so columns are sized purely from it.
+					style={fixedLayout ? { tableLayout: 'fixed', width: `${fixedLayoutWidth}px` } : undefined}
 				>
 					{fixedLayout && (
 						<colgroup>
-							{visibleLeafColumns.map((column, index) => (
-								<col key={column.id} style={index === visibleLeafColumns.length - 1 ? undefined : { width: column.getSize() }} />
+							{visibleLeafColumns.map(column => (
+								<col key={column.id} style={{ width: column.getSize() }} />
 							))}
 							{hasRowActions && <col style={{ width: ACTIONS_COLUMN_WIDTH }} />}
 						</colgroup>
@@ -691,24 +725,41 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 					<TableHead>
 						{table.getHeaderGroups().map(headerGroup => (
 							<TableRow key={headerGroup.id}>
-								{headerGroup.headers.map(header => (
-									<TableCell key={header.id} sx={cellSx}>
-										{header.column.getCanSort() ? (
-											<TableSortLabel
-												active={header.column.getIsSorted() !== false}
-												direction={header.column.getIsSorted() || 'asc'}
-												onClick={header.column.getToggleSortingHandler()}
-											>
-												{flexRender(header.column.columnDef.header, header.getContext())}
-											</TableSortLabel>
-										) : (
-											flexRender(header.column.columnDef.header, header.getContext())
-										)}
-									</TableCell>
-								))}
+								{headerGroup.headers.map(header => {
+									let details = header.column.columnDef.meta?.details;
+									let detailLines = details ? ColumnDetailsUtils.lines(details) : [];
+									let content = header.column.getCanSort() ? (
+										<TableSortLabel
+											active={header.column.getIsSorted() !== false}
+											direction={header.column.getIsSorted() || 'asc'}
+											onClick={header.column.getToggleSortingHandler()}
+										>
+											{flexRender(header.column.columnDef.header, header.getContext())}
+										</TableSortLabel>
+									) : (
+										flexRender(header.column.columnDef.header, header.getContext())
+									);
+
+									return (
+										<TableCell
+											key={header.id}
+											sx={headerCellSx}
+											onContextMenu={details ? event => handleHeaderContextMenu(event, details) : undefined}
+										>
+											{/* A span, since a Tooltip needs one element to listen on and a sortable header's
+											content is a TableSortLabel while a plain one's is whatever the column renders.
+											MenuAwareTooltip keeps it from covering the header's own copy menu. */}
+											{detailLines.length > 0 ? (
+												<MenuAwareTooltip title={<TooltipLines lines={detailLines} />} placement="bottom-start">
+													<span>{content}</span>
+												</MenuAwareTooltip>
+											) : content}
+										</TableCell>
+									);
+								})}
 
 								{hasRowActions && (
-									<TableCell sx={{ ...ACTIONS_CELL_SX, bgcolor: theme.palette.background.paper }} />
+									<TableCell sx={{ ...ACTIONS_CELL_SX, bgcolor: headerColor }} />
 								)}
 							</TableRow>
 						))}
@@ -798,6 +849,10 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 				{renderActionMenuItems(resolvedTableActions, handleContextMenuClose)}
 			</ContextMenu>
 
+			<ContextMenu position={headerMenuState} onClose={handleHeaderMenuClose}>
+				{headerMenuState && columnCopyMenuItems(headerMenuState.details, handleHeaderMenuClose)}
+			</ContextMenu>
+
 			<ExportDialog
 				open={exportDialogOpen}
 				onClose={handleExportDialogClose}
@@ -811,4 +866,6 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 			/>
 		</Stack>
 	);
+
+	return <ContextMenuOpenContext.Provider value={headerMenuState != null}>{body}</ContextMenuOpenContext.Provider>;
 }

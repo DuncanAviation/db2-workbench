@@ -12,6 +12,16 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 
 - **Materialized query tables in the schema browser.** MQTs are listed under their own "Materialized Query Tables" node in each schema and open with the table tabs that apply to them (Columns, Indexes, Advised Indexes, Data), plus a Definition tab showing the select statement the MQT was created from. The Info tab shows how the MQT is maintained and refreshed, when it was last refreshed, and its isolation level.
 - Materialized query tables are offered by content assist and resolved by View Table Details, the same as tables.
+- **Column header tooltips.** Hovering a column header in the results grid or the schema browser's Data tab shows the column's short name, long name, description and type, plus whether it's an identity column or NOT NULL. Computed columns show the type the driver reports.
+- **Copy column names from a header.** Right-clicking a column header in the results grid or the Data tab offers Copy Name, Copy Long Name and Copy Description.
+- **Copy names from a diagram.** Right-clicking a table's header on a diagram offers Copy Name for the table; right-clicking one of its columns offers the same Copy Name, Copy Long Name and Copy Description as a grid header.
+
+### Changed
+
+- The diagram's column tooltip now shows the column's type.
+- Tooltips throughout the extension wait half a second before showing, like VS Code's own hovers, instead of appearing almost immediately.
+- Data grids take their look from VS Code's own tables: the row stripes, header background and column lines use the same theme colors as the Keyboard Shortcuts editor, with no line between rows.
+- The results grid and the Data tab are only as wide as their columns, instead of stretching the last column across the rest of the panel.
 
 ## [0.1.0] - 2026-10-12
 

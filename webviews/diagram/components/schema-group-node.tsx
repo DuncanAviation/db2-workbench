@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Box, Tooltip } from '@mui/material';
+import { Box } from '@mui/material';
+import { MenuAwareTooltip } from '../../shared/components/menu-aware-tooltip';
 import { Handle, NodeResizer, Position, useStore } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
 import { shouldShowSchemaTableCount } from '../../../src/diagram/diagram-zoom-tiers';
@@ -126,14 +127,14 @@ function SchemaGroupNodeComponent({id, data, width}: NodeProps & {data: SchemaGr
 					boxSizing: 'border-box', overflow: 'hidden', pointerEvents: 'none',
 					opacity: data.dimmed ? 0.35 : 1, transition: 'opacity 120ms ease'
 				}}>
-					<Tooltip title={showCount ? data.name : schemaTooltipText(data.name, data.tableCount)}>
+					<MenuAwareTooltip title={showCount ? data.name : schemaTooltipText(data.name, data.tableCount)}>
 						<Box className={SCHEMA_DRAG_HANDLE_CLASS} sx={{transform: `scale(${scale})`, textAlign: 'center', color: data.color, cursor: 'grab', pointerEvents: 'auto'}}>
 							<Box sx={{fontSize: BASE_LABEL_FONT_SIZE * 1.4, fontWeight: 700, ...truncatedTextSx}}>{data.name}</Box>
 							{showCount && (
 								<Box sx={{fontSize: BASE_LABEL_FONT_SIZE, color: 'text.secondary', ...truncatedTextSx}}>{data.tableCount} table{data.tableCount === 1 ? '' : 's'}</Box>
 							)}
 						</Box>
-					</Tooltip>
+					</MenuAwareTooltip>
 				</Box>
 			</>
 		);
@@ -152,7 +153,7 @@ function SchemaGroupNodeComponent({id, data, width}: NodeProps & {data: SchemaGr
 				backgroundColor: 'transparent', boxSizing: 'border-box', pointerEvents: 'none',
 				opacity: data.dimmed ? 0.35 : 1, transition: 'opacity 120ms ease'
 			}}>
-				<Tooltip title={schemaTooltipText(data.name, data.tableCount)}>
+				<MenuAwareTooltip title={schemaTooltipText(data.name, data.tableCount)}>
 					{/* Deliberately padded well beyond the text itself - reported hard to hit otherwise, since
 					the border/gap space around densely-packed tables can be only a few pixels wide. This tab
 					is never covered by a table (it sits above the box's own top edge), so it's a reliable,
@@ -170,7 +171,7 @@ function SchemaGroupNodeComponent({id, data, width}: NodeProps & {data: SchemaGr
 					}}>
 						{data.name}
 					</Box>
-				</Tooltip>
+				</MenuAwareTooltip>
 			</Box>
 		</>
 	);

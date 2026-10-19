@@ -28,6 +28,7 @@ function session(overrides: Partial<ResultsSessionDetail> = {}): ResultsSessionD
 		rows: [],
 		columns: [],
 		columnLabels: {},
+		columnDetails: {},
 		columnDataTypes: {},
 		procedureOutParameters: [],
 		isCursorOpen: false,

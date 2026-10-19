@@ -1,6 +1,6 @@
-import { ResultHeadingLabel } from '../models/result-heading-label.js';
+import { ColumnDetailsUtils } from '../utils/column-details.js';
+import type { ColumnDetailLine } from '../utils/column-details.js';
 import { ColumnNameUtils } from '../utils/column-name-utils.js';
-import { StringUtils } from '../utils/string-utils.js';
 import { DiagramColumn } from '../webview-messages/diagram-messages.js';
 
 // The one place a diagram decides what to CALL a column, and the one place it decides whether a name it
@@ -17,7 +17,7 @@ import { DiagramColumn } from '../webview-messages/diagram-messages.js';
 //
 // DISPLAY is what the user reads, and follows the same `db2-workbench.resultHeadingLabels` setting the
 // results grid and the schema browser use, so a column reads the same way in all three. Only the FIRST
-// configured option is shown: a diagram row is one narrow cell (see formatColumnType's comment on the
+// configured option is shown: a diagram row is one narrow cell (see ColumnDetailsUtils.formatType's comment on the
 // same constraint), so joining two or three names the way the results grid's stacked header can would
 // simply not fit.
 
@@ -52,10 +52,8 @@ export function columnDisplayName(column: DiagramColumn, resultHeadingLabels: re
 	return ColumnNameUtils.displayName(ColumnNameUtils.fromDiagramColumn(column), resultHeadingLabels);
 }
 
-export interface ColumnTooltipLine {
-	label: string;
-	value: string;
-}
+/** A tooltip line - the shared shape, so the diagram and the data grids render the same thing. */
+export type ColumnTooltipLine = ColumnDetailLine;
 
 /** One relationship this column is the foreign-key (fromColumn) end of - just enough for a tooltip to
  * name what it points at, not the full DiagramRelationship shape (which also carries an id and the
@@ -72,10 +70,11 @@ export interface ColumnIndexMembership {
 }
 
 /**
- * Every name form worth showing in a column's hover tooltip - short name, long name, and description,
- * skipping whichever of the three this column doesn't have - followed by an Identity line, a Primary Key
- * line, a Not Null line, a Unique line, an Index line per index it belongs to, and a Foreign Key line per
- * relationship it's the source end of, each shown independently of the others (a column can be more than
+ * Every line of a column's hover tooltip: what ColumnDetailsUtils.lines() shows for a column anywhere -
+ * short name, long name, and description (skipping whichever of the three this column doesn't have), its
+ * type, then an Identity line, a Primary Key line and a Not Null line - followed by the diagram-only lines:
+ * a Unique line, an Index line per index it belongs to, and a Foreign Key line per relationship it's the
+ * source end of, each shown independently of the others (a column can be more than
  * one at once, e.g. a primary key that's also an identity column - the row's own icon only ever shows one,
  * identity taking priority (see table-node.tsx's ColumnIcon), but the tooltip has room to be complete, in
  * that same priority order). Unlike columnDisplayName this doesn't stop at the first match: a tooltip has
@@ -96,25 +95,7 @@ export function columnTooltipLines(
 	uniquePartners: readonly string[] = [],
 	indexes: readonly ColumnIndexMembership[] = []
 ): ColumnTooltipLine[] {
-	let candidates: {label: string; value: string | undefined}[] = [
-		{label: ResultHeadingLabel.SHORT_NAME, value: column.shortName},
-		{label: ResultHeadingLabel.LONG_NAME, value: column.longName},
-		{label: ResultHeadingLabel.DESCRIPTION, value: column.description}
-	];
-
-	let lines = candidates.filter((line): line is ColumnTooltipLine => StringUtils.isNotBlank(line.value));
-
-	if(column.identity) {
-		lines.push({label: 'Identity', value: 'Yes'});
-	}
-
-	if(column.primaryKey) {
-		lines.push({label: 'Primary Key', value: 'Yes'});
-	}
-
-	if(column.notNull) {
-		lines.push({label: 'Not Null', value: 'Yes'});
-	}
+	let lines = ColumnDetailsUtils.lines(column);
 
 	if(column.unique) {
 		lines.push({label: 'Unique', value: uniquePartners.length > 0 ? `With ${uniquePartners.join(', ')}` : 'Yes'});

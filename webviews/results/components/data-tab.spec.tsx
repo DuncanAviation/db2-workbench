@@ -38,6 +38,7 @@ function session(overrides: Partial<ResultsSessionDetail> = {}): ResultsSessionD
 		rows: rows(5),
 		columns: ['ID', 'NAME', 'NOTE'],
 		columnLabels: {},
+		columnDetails: {},
 		columnDataTypes: { ID: 'SQL_INTEGER', NAME: 'SQL_VARCHAR', NOTE: 'SQL_VARCHAR' },
 		procedureOutParameters: [],
 		isCursorOpen: false,
@@ -112,6 +113,17 @@ describe('results DataTab', () => {
 
 			expect(within(dataRows()[0]).getAllByRole('cell')[2].textContent).toBe('<null>');
 			expect(within(dataRows()[1]).getAllByRole('cell')[2].textContent).toBe('ok');
+		});
+
+		it('describes a column in its header tooltip from the host-built details', async () => {
+			let user = userEvent.setup();
+			renderDataTab(session({ columnDetails: { ID: { shortName: 'PARTID', longName: 'PART_IDENTIFIER', type: 'INTEGER' } } }));
+
+			await user.hover(screen.getByText('ID'));
+
+			let tooltip = await screen.findByRole('tooltip');
+			expect(tooltip.textContent).toContain('Short Name: PARTID');
+			expect(tooltip.textContent).toContain('Type: INTEGER');
 		});
 
 		it('right-aligns the cells of a column the driver reports as numeric, and only that column, leaving every header left-aligned', () => {

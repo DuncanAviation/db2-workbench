@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { ResolvedColumn, ResolvedForeignKey, ResolvedIndex, ResolvedTable, ResolvedTableKey } from '../schema-conversion/schema-format-converter.js';
-import { formatColumnType, toDiagramTable } from './diagram-resolved-table.js';
+import { toDiagramTable } from './diagram-resolved-table.js';
 
 // A connected column: DB2 fills in both name forms and a colNo. An imported-only one has neither a
 // colNo nor a long sqlName, which is what the identity/ordering rules below exist for.
@@ -325,36 +325,6 @@ describe('diagram-resolved-table', () => {
 			let table = toDiagramTable(resolvedTable());
 
 			expect(table).to.not.have.property('importStatus');
-		});
-	});
-
-	describe('formatColumnType', () => {
-		it('renders a length-bearing type with its length', () => {
-			expect(formatColumnType({dataType: 'CHAR', length: 10})).to.equal('CHAR(10)');
-		});
-
-		it('renders a type with no length bare', () => {
-			expect(formatColumnType({dataType: 'INTEGER'})).to.equal('INTEGER');
-		});
-
-		it('treats a reported length of zero as no length', () => {
-			expect(formatColumnType({dataType: 'DATE', length: 0})).to.equal('DATE');
-		});
-
-		it('renders precision and scale for a decimal type', () => {
-			expect(formatColumnType({dataType: 'DECIMAL', length: 7, precision: 7, scale: 2})).to.equal('DECIMAL(7,2)');
-		});
-
-		it('keeps a zero scale on a decimal type', () => {
-			expect(formatColumnType({dataType: 'NUMERIC', precision: 5, scale: 0})).to.equal('NUMERIC(5,0)');
-		});
-
-		it('ignores scale on a non-decimal type', () => {
-			expect(formatColumnType({dataType: 'TIMESTAMP', length: 26, scale: 6})).to.equal('TIMESTAMP(26)');
-		});
-
-		it('returns an empty string for a missing data type', () => {
-			expect(formatColumnType({dataType: '   '})).to.equal('');
 		});
 	});
 });
