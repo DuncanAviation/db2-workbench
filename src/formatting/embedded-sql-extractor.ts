@@ -97,6 +97,23 @@ export class EmbeddedSqlExtractor {
 		return {sql, replaced: true, parameters};
 	}
 
+	// True when the host code ahead of this text's first string piece appends to a query built by an
+	// earlier statement ("sql += `...`", "sql = sql + ...", "sb.append(...)"), after any comments.
+	// SqlDocumentFormatter splits a document on ";" before extracting, so it uses this to put back
+	// together a query built over several host statements, which no single statement shows as glue.
+	static continuesConcatenation(text: string): boolean {
+		let pieces = EmbeddedSqlExtractor.splitIntoPieces(text);
+		let firstIndex = pieces.findIndex(piece => piece.kind !== 'code');
+
+		if(firstIndex === -1) {
+			return false;
+		}
+
+		let leading = pieces.slice(0, firstIndex).map(piece => piece.content ?? '').join('')
+			.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ' ');
+		return EmbeddedSqlExtractor.normalizeGlue(leading).trim().startsWith('+');
+	}
+
 	private static readonly LINE_COMMENT_NEWLINE = String.fromCharCode(1);
 
 	// Renders a concatenation-glue "code" piece (e.g. " + //note\ncustId + "), separating a
