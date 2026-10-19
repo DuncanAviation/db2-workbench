@@ -402,8 +402,23 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 	// Add Row: a pending insert straight in the grid, starting from the same defaults the dialog would
 	// show, its missing required columns flagged the way an inline edit flags them.
 	function handleAddRowInGrid() {
+		addPendingInsert(DataEditDefaults.newRowValues(resolveFieldColumns('add', columns), dataEditSettings));
+	}
+
+	// Duplicate Row: a pending insert seeded with the row's own displayed values (a pending update's
+	// included), for every column Add Row lets the user fill in - identity and LOB columns are left
+	// out the same way, so DB2 generates the one and the other starts NULL.
+	function handleDuplicateRow(row: Row) {
+		let syntheticId = row.__pendingStatementId as string | undefined;
+		let insertValues = syntheticId ? insertStatements.find(candidate => candidate.id === syntheticId)?.rowEdit?.columnValues : undefined;
+		addPendingInsert(Object.fromEntries(resolveFieldColumns('add', columns).map(column => [
+			column.systemName,
+			insertValues ? (insertValues[column.systemName] ?? null) : displayColumnValue(row, column.systemName)
+		])));
+	}
+
+	function addPendingInsert(columnValues: Record<string, RowValue>) {
 		let fieldColumns = resolveFieldColumns('add', columns);
-		let columnValues = DataEditDefaults.newRowValues(fieldColumns, dataEditSettings);
 		let sql = RowEditUtils.buildInsertSql(table.schema, table.name, RowEditUtils.buildInsertValues(fieldColumns, columnValues));
 		let validationErrors = requiredMessages(RowEditUtils.findMissingRequired('insert', fieldColumns, columnValues));
 		let statement = { ...newPendingStatement(table.schema, table.name, sql, { columnValues }), validationErrors };
@@ -589,6 +604,7 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 		if (syntheticId) {
 			return [
 				{ label: 'Edit Row', appliesToSelection: false, disabled, disabledReason, onClick: () => handleOpenEditForInsert(syntheticId) },
+				{ label: 'Duplicate Row', appliesToSelection: false, disabled, disabledReason, onClick: () => handleDuplicateRow(row) },
 				{ label: 'Cancel Add', appliesToSelection: false, disabled, disabledReason, onClick: () => onDeleteStatement(syntheticId) }
 			];
 		}
@@ -613,12 +629,14 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 				? [{ label: 'Cancel Delete', appliesToSelection: false, disabled, disabledReason, onClick: () => onDeleteStatement(match.id) }]
 				: [
 					{ label: 'Edit Row', appliesToSelection: false, disabled, disabledReason, onClick: () => handleOpenEditRow(row, keyValues) },
+					{ label: 'Duplicate Row', appliesToSelection: false, disabled, disabledReason, onClick: () => handleDuplicateRow(row) },
 					{ label: 'Cancel Update', appliesToSelection: false, disabled, disabledReason, onClick: () => onDeleteStatement(match.id) }
 				];
 		}
 
 		return [
 			{ label: 'Edit Row', appliesToSelection: false, disabled, disabledReason, onClick: () => handleOpenEditRow(row, keyValues) },
+			{ label: 'Duplicate Row', appliesToSelection: false, disabled, disabledReason, onClick: () => handleDuplicateRow(row) },
 			{ label: 'Delete Row', appliesToSelection: false, disabled, disabledReason, onClick: () => handleDeleteRow(keyValues) }
 		];
 	}

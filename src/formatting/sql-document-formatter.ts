@@ -38,7 +38,7 @@ export class SqlDocumentFormatter {
 			// syntax and silently drop it. Extracting per span keeps each statement's fate
 			// independent, same as formatting itself already is.
 			let tokens = SqlTokenizer.tokenize(text);
-			let spans = SqlStatementSplitter.split(tokens);
+			let spans = SqlDocumentFormatter.joinHostStatements(SqlStatementSplitter.split(tokens));
 
 			if(spans.length === 0) {
 				return text;
@@ -71,6 +71,37 @@ export class SqlDocumentFormatter {
 		} catch {
 			return text;
 		}
+	}
+
+	// A query built over several host statements ("let sql = ``;" then "sql += `SELECT ...`;" lines)
+	// is split on each ";" like any other text, and no one span then holds the glue that marks it as
+	// host code. A span that appends to the query (EmbeddedSqlExtractor.continuesConcatenation) is
+	// joined to the span before it, but only when the joined text really extracts - otherwise each
+	// span is left to format alone, so a joined span never reaches the printer as several statements.
+	private static joinHostStatements(spans: SqlTokenizer.SqlToken[][]): SqlTokenizer.SqlToken[][] {
+		let joined: SqlTokenizer.SqlToken[][] = [];
+		let textOf = (span: SqlTokenizer.SqlToken[]) => span.map(token => token.text).join('');
+		let index = 0;
+
+		while(index < spans.length) {
+			let end = index + 1;
+
+			while(end < spans.length && EmbeddedSqlExtractor.continuesConcatenation(textOf(spans[end]))) {
+				end++;
+			}
+
+			let run = spans.slice(index, end);
+
+			if(run.length > 1 && EmbeddedSqlExtractor.extract(run.map(textOf).join('')).replaced) {
+				joined.push(run.flat());
+			} else {
+				joined.push(...run);
+			}
+
+			index = end;
+		}
+
+		return joined;
 	}
 }
 
