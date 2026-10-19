@@ -38,7 +38,8 @@ export class EmbeddedSqlExtractor {
 
 		// Leading/trailing "code" outside the first/last string or template literal is the host
 		// language's own declaration syntax (e.g. "String sql = " ... ";"), not concatenation glue --
-		// deliberately dropped rather than turned into a nonsense parameter.
+		// deliberately dropped rather than turned into a nonsense parameter, except a value the trailing
+		// code still appends (see renderTrailingAppend).
 		let relevant = pieces.slice(firstIndex, lastIndex + 1);
 		let parameters: EmbeddedSqlExtractor.Parameter[] = [];
 		let usedNames = new Set<string>();
@@ -76,6 +77,12 @@ export class EmbeddedSqlExtractor {
 			return EmbeddedSqlExtractor.renderCodeGlue(piece.content ?? '', paramFor);
 		});
 
+		let trailing = pieces[lastIndex + 1];
+
+		if(trailing?.kind === 'code') {
+			sqlParts.push(EmbeddedSqlExtractor.renderTrailingAppend(trailing.content ?? '', paramFor));
+		}
+
 		// The trailing "\s+" collapse below normalizes the original source's incidental
 		// indentation/line breaks into single spaces -- fine for ordinary tokens, but a "--" line
 		// comment (renderCodeGlue's conversion of a host "//" comment) relies on an actual "\n" to
@@ -109,7 +116,7 @@ export class EmbeddedSqlExtractor {
 				return;
 			}
 
-			let rendered = EmbeddedSqlExtractor.splitTopLevelPlus(code.substring(exprStart, end))
+			let rendered = EmbeddedSqlExtractor.splitTopLevelPlus(EmbeddedSqlExtractor.normalizeGlue(code.substring(exprStart, end)))
 				.map(paramFor)
 				.filter(part => part.length > 0)
 				.join(' ');
@@ -289,7 +296,67 @@ export class EmbeddedSqlExtractor {
 			return false;
 		}
 
-		return pieces.slice(firstIndex + 1, lastIndex).some(piece => piece.kind === 'code' && (piece.content ?? '').includes('+'));
+		return pieces.slice(firstIndex + 1, lastIndex).some(piece => piece.kind === 'code' && EmbeddedSqlExtractor.normalizeGlue(piece.content ?? '').includes('+'));
+	}
+
+	// An lvalue: "sql", "this.sql", "query.text".
+	private static readonly LVALUE = String.raw`[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*`;
+	// "sql +=" (JS/TS/Java/C#), and "sql = sql +" - both just append to the query being built.
+	private static readonly COMPOUND_APPEND = new RegExp(String.raw`${EmbeddedSqlExtractor.LVALUE}\s*\+=`, 'g');
+	private static readonly SELF_APPEND = new RegExp(String.raw`(${EmbeddedSqlExtractor.LVALUE})\s*(?<![=!<>])=(?!=)\s*\1\s*\+`, 'g');
+	// A StringBuilder call, chained ").append(" or a new statement's "sb.append(" (C#'s "Append" too).
+	private static readonly APPEND_CALL = new RegExp(String.raw`(?:${EmbeddedSqlExtractor.LVALUE}\s*)?\.\s*append\s*\(`, 'gi');
+
+	// Rewrites the ways a host language appends to a query across statements into plain "+"
+	// concatenation, so the glue between two string pieces of
+	//   sql += `SELECT ... `;
+	//   // a comment
+	//   sql += `FROM ...`;
+	// is only "+" and not ";", "sql" and "=" parameters. The glue is split into host statements on
+	// ";"; a statement that appends nothing (no "+" once rewritten, e.g. "int x = 5") is dropped. An
+	// append call's own parentheses are left unbalanced by the rewrite and trimmed in splitTopLevelPlus.
+	private static normalizeGlue(code: string): string {
+		return code.split(';')
+			.map(statement => statement
+				.replace(EmbeddedSqlExtractor.SELF_APPEND, ' + ')
+				.replace(EmbeddedSqlExtractor.COMPOUND_APPEND, ' + ')
+				.replace(EmbeddedSqlExtractor.APPEND_CALL, ' + '))
+			.filter(statement => statement.includes('+'))
+			.join(' + ');
+	}
+
+	// The code after the last string piece is mostly the statement's end (";", ");"), but it can
+	// still append one last value - "... WHERE id = " + id; or .append(id); - which belongs in the
+	// SQL. Only that statement's own text is read (up to its ";", or its line without one), and only
+	// when it starts by appending, so whatever code follows the query is still dropped. It never
+	// counts toward hasConcatenationGlue: one SQL string followed by "+ x" is also plain DB2 ('1' + 2).
+	private static renderTrailingAppend(code: string, paramFor: (expression: string) => string): string {
+		let parts = EmbeddedSqlExtractor.trailingAppendParts(code);
+		return parts.length > 0 ? ' ' + parts.map(paramFor).join(' ') : '';
+	}
+
+	private static trailingAppendParts(code: string): string[] {
+		let end = code.indexOf(';');
+		let statement = code.substring(0, end === -1 ? code.search(/\n|$/) : end);
+		let normalized = EmbeddedSqlExtractor.normalizeGlue(statement).replace(/^[\s)]*/, '');
+		return normalized.startsWith('+') ? EmbeddedSqlExtractor.splitTopLevelPlus(normalized) : [];
+	}
+
+	// Drops the parentheses an append call leaves behind once normalizeGlue has rewritten it -
+	// "sb.append(id)" becomes " + id)" - without touching a balanced "(a ? b : c)".
+	private static trimUnbalancedParens(part: string): string {
+		let trimmed = part.trim();
+		let depth = (text: string) => [...text].reduce((total, char) => total + (char === '(' ? 1 : char === ')' ? -1 : 0), 0);
+
+		while(trimmed.endsWith(')') && depth(trimmed) < 0) {
+			trimmed = trimmed.slice(0, -1).trim();
+		}
+
+		while(trimmed.startsWith('(') && depth(trimmed) > 0) {
+			trimmed = trimmed.slice(1).trim();
+		}
+
+		return trimmed;
 	}
 
 	// Splits a concatenation-glue "code" piece (e.g. " + a + b + ") on top-level "+" -- so
@@ -318,7 +385,7 @@ export class EmbeddedSqlExtractor {
 		}
 
 		parts.push(current);
-		return parts.map(part => part.trim()).filter(part => part.length > 0);
+		return parts.map(EmbeddedSqlExtractor.trimUnbalancedParens).filter(part => part.length > 0);
 	}
 
 	private static deriveParamName(expression: string, usedNames: Set<string>): string {

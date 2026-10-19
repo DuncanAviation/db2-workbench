@@ -535,7 +535,7 @@ describe('schemas Data tab edit flow', () => {
 			expect(panelSql()).toEqual(['UPDATE "PARTS"."PART" SET "DESCR" = \'Hex bolt\', "QTY" = 40 WHERE "PARTNO" = \'A100\'']);
 			expect(within(statementItem(0)).getByText('Update')).toBeTruthy();
 			expect(field('A100', 'DESCR').value).toBe('Hex bolt');
-			expect(await rowActionLabels(user, 'A100')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Cancel Update', disabled: false }]);
+			expect(await rowActionLabels(user, 'A100')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Duplicate Row', disabled: false }, { label: 'Cancel Update', disabled: false }]);
 		});
 
 		it('keeps a leading space typed into a value, and in a fetched key, since either can be real data', async () => {
@@ -575,6 +575,7 @@ describe('schemas Data tab edit flow', () => {
 			expect(await cellMenu(user, field('B200', 'DESCR'))).toEqual([
 				{ label: 'Set NULL', disabled: false },
 				{ label: 'Edit Row', disabled: false },
+				{ label: 'Duplicate Row', disabled: false },
 				{ label: 'Delete Row', disabled: false },
 				{ label: 'Add Row', disabled: false },
 				{ label: 'Add Row in Dialog', disabled: false },
@@ -738,7 +739,7 @@ describe('schemas Data tab edit flow', () => {
 			expect(within(statementItem(0)).getByText('Insert')).toBeTruthy();
 			expect(inputs(dataRows()[0]).map(input => input.value)).toEqual(['D400', 'Washer', '3']);
 			expect(dataRows()).toHaveLength(4);
-			expect(await rowActionLabels(user, 'D400')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Cancel Add', disabled: false }]);
+			expect(await rowActionLabels(user, 'D400')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Duplicate Row', disabled: false }, { label: 'Cancel Add', disabled: false }]);
 		});
 
 		// The split button's own click adds in the grid; the dialog is the arrow's option.
@@ -761,6 +762,51 @@ describe('schemas Data tab edit flow', () => {
 			expect(dataRows().slice(0, 2).map(row => inputs(row)[0].value)).toEqual(['', 'D400']);
 			expect(document.activeElement).toBe(inputs(dataRows()[0])[0]);
 			expect(panelSql()).toHaveLength(2);
+		});
+
+		// The copy keeps every value, the key included - DB2 rejects a duplicate key, so the user changes it.
+		it('Duplicate Row adds a pending insert at the top of the grid with the row\'s values', async () => {
+			let user = await openDataTab();
+
+			await rowAction(user, 'B200', 'Duplicate Row');
+
+			expect(panelSql()).toEqual(['INSERT INTO "PARTS"."PART" ("PARTNO", "DESCR", "QTY") VALUES (\'B200\', \'Nut\', 12)']);
+			expect(within(statementItem(0)).getByText('Insert')).toBeTruthy();
+			expect(dataRows()).toHaveLength(4);
+			expect(inputs(dataRows()[0]).map(input => input.value)).toEqual(['B200', 'Nut', '12']);
+
+			await user.clear(inputs(dataRows()[0])[0]);
+			await user.keyboard('B201');
+			expect(panelSql()).toEqual(['INSERT INTO "PARTS"."PART" ("PARTNO", "DESCR", "QTY") VALUES (\'B201\', \'Nut\', 12)']);
+		});
+
+		it('Duplicate Row copies a pending update\'s values, and a pending insert\'s', async () => {
+			let user = await openDataTab();
+			await user.type(field('B200', 'DESCR'), '!');
+
+			await rowAction(user, 'B200', 'Duplicate Row');
+			expect(panelSql()).toEqual([
+				'UPDATE "PARTS"."PART" SET "DESCR" = \'Nut!\' WHERE "PARTNO" = \'B200\'',
+				'INSERT INTO "PARTS"."PART" ("PARTNO", "DESCR", "QTY") VALUES (\'B200\', \'Nut!\', 12)'
+			]);
+
+			await user.clear(inputs(dataRows()[0])[0]);
+			await user.keyboard('D400');
+			await rowAction(user, 'D400', 'Duplicate Row');
+			expect(panelSql()).toHaveLength(3);
+			expect(panelSql()[2]).toBe('INSERT INTO "PARTS"."PART" ("PARTNO", "DESCR", "QTY") VALUES (\'D400\', \'Nut!\', 12)');
+		});
+
+		// Left out the way Add Row leaves it out, so DB2 generates it.
+		it('Duplicate Row leaves an identity column out of the INSERT', async () => {
+			let columns = [systemColumn({ colNo: 0, systemName: 'ID', sqlName: 'ID', dataType: 'INTEGER', nulls: 'N', identity: 'YES', updatable: 'NO' }), ...COLUMNS];
+			let rows = ROWS.map((row, index) => ({ ID: index + 1, ...row }));
+			let user = await openDataTab({ data: { columns, rows, keyColumns: [{ systemName: 'ID', isRrn: false }] } });
+
+			await user.click(within(dataRows()[1]).getByRole('button', { name: 'Actions' }));
+			await user.click(screen.getByRole('menuitem', { name: 'Duplicate Row' }));
+
+			expect(panelSql()).toEqual(['INSERT INTO "PARTS"."PART" ("PARTNO", "DESCR", "QTY") VALUES (\'B200\', \'Nut\', 12)']);
 		});
 
 		it('a row added in the grid flags a required column it leaves NULL until it is filled in', async () => {
@@ -1080,7 +1126,7 @@ describe('schemas Data tab edit flow', () => {
 			expect((screen.getByRole('button', { name: 'Add Row' }) as HTMLButtonElement).disabled).toBe(true);
 			expect((screen.getByRole('button', { name: 'Cancel Edit' }) as HTMLButtonElement).disabled).toBe(true);
 			expect(await rowActionLabels(user, 'A100')).toEqual([{ label: 'Cancel Delete', disabled: true, reason: 'A run is in progress' }]);
-			expect(await rowActionLabels(user, 'B200')).toEqual([{ label: 'Edit Row', disabled: true, reason: 'A run is in progress' }, { label: 'Delete Row', disabled: true, reason: 'A run is in progress' }]);
+			expect(await rowActionLabels(user, 'B200')).toEqual([{ label: 'Edit Row', disabled: true, reason: 'A run is in progress' }, { label: 'Duplicate Row', disabled: true, reason: 'A run is in progress' }, { label: 'Delete Row', disabled: true, reason: 'A run is in progress' }]);
 
 			// Closing the tab is refused outright, not just confirmed.
 			await user.click(screen.getByRole('button', { name: `Close ${TABLE}` }));
@@ -1146,7 +1192,7 @@ describe('schemas Data tab edit flow', () => {
 			// The reload shows the table as the database now has it, and the done DELETE no longer marks anything.
 			postFromHost<SchemasInboundMessage>(tableData({ rows: ROWS.slice(1) }));
 			expect(dataRows()).toHaveLength(2);
-			expect(await rowActionLabels(user, 'B200')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Delete Row', disabled: false }]);
+			expect(await rowActionLabels(user, 'B200')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Duplicate Row', disabled: false }, { label: 'Delete Row', disabled: false }]);
 		});
 
 		it('a done UPDATE stops marking its row once the reload shows the committed value', async () => {
@@ -1159,7 +1205,7 @@ describe('schemas Data tab edit flow', () => {
 			postFromHost<SchemasInboundMessage>(tableData({ rows: [ROWS[0], { ...ROWS[1], DESCR: 'Nuts' }, ROWS[2]] }));
 
 			expect(field('B200', 'DESCR').value).toBe('Nuts');
-			expect(await rowActionLabels(user, 'B200')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Delete Row', disabled: false }]);
+			expect(await rowActionLabels(user, 'B200')).toEqual([{ label: 'Edit Row', disabled: false }, { label: 'Duplicate Row', disabled: false }, { label: 'Delete Row', disabled: false }]);
 			// Editing the row again starts a new statement rather than reopening the done one.
 			await user.type(field('B200', 'DESCR'), '!');
 			expect(panelSql()).toEqual([
