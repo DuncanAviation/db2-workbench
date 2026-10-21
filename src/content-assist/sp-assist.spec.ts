@@ -30,7 +30,7 @@ function schema(name: string): SystemSchema {
 }
 
 function procedure(overrides: Partial<SystemRoutine> = {}): SystemRoutine {
-	return {schema: 'MYSCHEMA', name: 'MYPROC', specificName: 'MYPROC', sqlSchema: 'MYSCHEMA', routineType: 'PROCEDURE', body: 'SQL', language: 'SQL', description: '', ...overrides};
+	return {schema: 'MYSCHEMA', name: 'MYPROC', specificName: 'MYPROC', sqlSchema: 'MYSCHEMA', routineType: 'PROCEDURE', body: 'SQL', language: 'SQL', description: '', parameterCount: 0, ...overrides};
 }
 
 // Real MemoryCache methods narrow by schema when one is given, and return everything otherwise --

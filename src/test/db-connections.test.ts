@@ -3,6 +3,7 @@ import { defineFakeDatabase } from '../database/drivers/fake/fake-database.js';
 import { DbConnectionEvent } from '../events/db-connection-event.js';
 import { Event } from '../events/event.js';
 import { extension } from '../extension.js';
+import { ParameterParser } from '../utils/parameter-parser.js';
 import { TestSupport } from './test-support.js';
 
 // The first integration tests that run the real extension against a database - a fake one. Everything
@@ -237,6 +238,120 @@ suite('DbConnections resolving an unqualified CALL\'s schema', () => {
 			assert.strictEqual(result.eventType, DbConnectionEvent.EventType.RESULT);
 			// Raw text, not normalized: the lowercase schema as typed must reach the driver uppercased
 			assert.deepStrictEqual(recorder.matching(/^call /).map(statement => statement.sql), ['call OFFLIB.SHARED_PROC']);
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+});
+
+// An overloaded procedure name, shaped like QSYS2.QCMDEXC: node-odbc's callProcedure() counts the
+// parameters of every overload (here 2 + 1) and refuses any CALL of it, so such a CALL has to run as a
+// plain statement instead. FakeDriver.callProcedure makes node-odbc's check, so the first test fails on
+// the old path.
+suite('DbConnections running a CALL of an overloaded procedure', () => {
+	const command = { name: 'COMMAND', mode: 'IN', dataType: 'VARCHAR', length: 32702 };
+
+	const database = defineFakeDatabase({
+		schemas: [{
+			name: 'CMDLIB',
+			procedures: [
+				{ name: 'QCMDEXC', specificName: 'QCMDEXC', parameters: [command, { name: 'LENGTH', mode: 'IN', dataType: 'DECIMAL', length: 15 }] },
+				{ name: 'QCMDEXC', specificName: 'QCMDEXC1', parameters: [command] },
+				{ name: 'SINGLE', parameters: [command] }
+			]
+		}]
+	});
+
+	const callResponse = { match: /^\s*call /i, rows: [] };
+
+	suiteSetup(async () => {
+		await TestSupport.activate();
+	});
+
+	teardown(async () => {
+		await extension.memoryCache.deleteConnectionCache({ key: 'test://teardown', configId: TestSupport.CONFIG_ID });
+		TestSupport.restoreDriver();
+	});
+
+	/** callProcedure() records `call SCHEMA.NAME`; the plain statement records the CALL rebuilt with one marker per argument. */
+	function calls(recorder: TestSupport.StatementRecorder): string[] {
+		return recorder.matching(/^\s*call /).map(statement => statement.sql);
+	}
+
+	/** Runs a CALL with its arguments bound the way Commands binds them: the full positional list, literals included. */
+	function executeCall(key: string, sql: string): Promise<DbConnectionEvent> {
+		return TestSupport.execute(key, sql, { parameters: ParameterParser.buildCallParameters(sql, []) });
+	}
+
+	test('an overloaded procedure runs as a plain statement with one marker per argument, with either argument count', async () => {
+		let key = 'test://call-overloaded';
+		let recorder = TestSupport.recordStatements({ database: database, responses: [callResponse] });
+
+		try {
+			let one = await executeCall(key, `CALL CMDLIB.QCMDEXC('CHGLIBL LIBL(QTEMP QGPL)')`);
+			let two = await executeCall(key, `call cmdlib.qcmdexc('DSPLIBL', 7)`);
+
+			assert.strictEqual(one.eventType, DbConnectionEvent.EventType.RESULT, String(one.error?.message));
+			assert.strictEqual(two.eventType, DbConnectionEvent.EventType.RESULT, String(two.error?.message));
+
+			let statements = recorder.matching(/^\s*call /);
+			assert.deepStrictEqual(statements.map(statement => statement.sql), ['CALL CMDLIB.QCMDEXC(?)', 'CALL CMDLIB.QCMDEXC(?, ?)']);
+			assert.deepStrictEqual(statements.map(statement => statement.parameters), [['CHGLIBL LIBL(QTEMP QGPL)'], ['DSPLIBL', 7]]);
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	test('a procedure that is not overloaded still goes through callProcedure()', async () => {
+		let key = 'test://call-single';
+		let recorder = TestSupport.recordStatements({ database: database, responses: [callResponse] });
+
+		try {
+			let result = await executeCall(key, `call cmdlib.single('X')`);
+
+			assert.strictEqual(result.eventType, DbConnectionEvent.EventType.RESULT, String(result.error?.message));
+			assert.deepStrictEqual(calls(recorder), ['call CMDLIB.SINGLE']);
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	// The routine list was cached before the second overload existed: it says "not overloaded", so the
+	// CALL goes to callProcedure(), which refuses it. That refusal re-reads the schema's routines once and
+	// runs the CALL as a plain statement.
+	test('a routine list cached before an overload existed is re-read once, and the CALL then runs', async () => {
+		let key = 'test://call-stale-overloads';
+		let routineReads = 0;
+		let staleRoutines = {
+			match: (sql: string) => /qsys2\.sysroutines/i.test(sql) && routineReads++ === 0,
+			rows: [{
+				SPECIFIC_SCHEMA: 'CMDLIB', SPECIFIC_NAME: 'QCMDEXC1', ROUTINE_SCHEMA: 'CMDLIB', ROUTINE_NAME: 'QCMDEXC', ROUTINE_TYPE: 'PROCEDURE',
+				ROUTINE_BODY: 'SQL', EXTERNAL_LANGUAGE: 'SQL', LONG_COMMENT: '', IN_PARMS: 1, OUT_PARMS: 0, INOUT_PARMS: 0
+			}]
+		};
+		let recorder = TestSupport.recordStatements({ database: database, responses: [staleRoutines, callResponse] });
+
+		try {
+			let result = await executeCall(key, `CALL CMDLIB.QCMDEXC('DSPLIBL')`);
+
+			assert.strictEqual(result.eventType, DbConnectionEvent.EventType.RESULT, String(result.error?.message));
+			assert.deepStrictEqual(calls(recorder), ['call CMDLIB.QCMDEXC', 'CALL CMDLIB.QCMDEXC(?)']);
+			assert.ok(routineReads >= 2, 'the routine list should have been re-read');
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	test('a CALL\'s parameters come from the overload its argument count picks', async () => {
+		let key = 'test://call-overload-params';
+		TestSupport.recordStatements({ database: database });
+
+		try {
+			let one = await extension.memoryCache.getProcedureParams({ key: key, configId: TestSupport.CONFIG_ID, schema: 'CMDLIB', procedure: 'QCMDEXC', argumentCount: 1 });
+			let two = await extension.memoryCache.getProcedureParams({ key: key, configId: TestSupport.CONFIG_ID, schema: 'CMDLIB', procedure: 'QCMDEXC', argumentCount: 2 });
+
+			assert.deepStrictEqual(one.map(param => param.name), ['COMMAND']);
+			assert.deepStrictEqual(two.map(param => param.name), ['COMMAND', 'LENGTH']);
 		} finally {
 			await TestSupport.closeSessions(key);
 		}

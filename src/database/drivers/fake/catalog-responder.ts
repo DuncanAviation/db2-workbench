@@ -676,7 +676,10 @@ export class CatalogResponder {
 			ROUTINE_BODY: routine.body,
 			EXTERNAL_LANGUAGE: routine.language,
 			ROUTINE_TEXT: null,
-			LONG_COMMENT: routine.description
+			LONG_COMMENT: routine.description,
+			IN_PARMS: routine.parameters.filter(parameter => parameter.mode === 'IN').length,
+			OUT_PARMS: routine.parameters.filter(parameter => parameter.mode === 'OUT').length,
+			INOUT_PARMS: routine.parameters.filter(parameter => parameter.mode === 'INOUT').length
 		};
 
 		if(!detail) {
@@ -691,9 +694,6 @@ export class CatalogResponder {
 			SQL_DATA_ACCESS: 'READS',
 			// SYSROUTINES leaves the function-only columns null on a procedure's row.
 			IS_NULL_CALL: fakeFunction == null ? null : 'YES',
-			IN_PARMS: routine.parameters.filter(parameter => parameter.mode === 'IN').length,
-			OUT_PARMS: routine.parameters.filter(parameter => parameter.mode === 'OUT').length,
-			INOUT_PARMS: routine.parameters.filter(parameter => parameter.mode === 'INOUT').length,
 			MAX_DYNAMIC_RESULT_SETS: CatalogResponder.isFunction(routine) ? 0 : routine.resultSets,
 			ROUTINE_CREATED: '2026-01-01 08:00:00.000000',
 			LAST_ALTERED: '2026-01-01 08:00:00.000000',
