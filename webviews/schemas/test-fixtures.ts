@@ -29,7 +29,7 @@ export function systemView(schema: string, name: string, overrides: Partial<Sche
 export function systemFunction(schema: string, name: string, overrides: Partial<SchemasSystemRoutine> = {}): SchemasSystemRoutine {
 	return {
 		schema, name, specificName: name, sqlSchema: schema, routineType: 'FUNCTION', functionType: 'S', functionOrigin: 'Q', body: 'SQL',
-		language: 'SQL', description: '',
+		language: 'SQL', description: '', parameterCount: 0,
 		...overrides
 	};
 }
@@ -37,7 +37,7 @@ export function systemFunction(schema: string, name: string, overrides: Partial<
 /** An SQL procedure's QSYS2.SYSROUTINES row, as the tree carries it - no function type or origin. */
 export function systemProcedure(schema: string, name: string, overrides: Partial<SchemasSystemRoutine> = {}): SchemasSystemRoutine {
 	return {
-		schema, name, specificName: name, sqlSchema: schema, routineType: 'PROCEDURE', body: 'SQL', language: 'SQL', description: '',
+		schema, name, specificName: name, sqlSchema: schema, routineType: 'PROCEDURE', body: 'SQL', language: 'SQL', description: '', parameterCount: 0,
 		...overrides
 	};
 }

@@ -26,6 +26,9 @@ export interface SystemRoutine {
 	body: string;
 	language: string;
 	description: string;
+	/** IN + OUT + INOUT parameters (a function's result isn't one). DB2 for i tells two procedures of
+	 * one name apart by this count alone, so it is what picks the overload a CALL runs. */
+	parameterCount: number;
 }
 
 export namespace SystemRoutine {

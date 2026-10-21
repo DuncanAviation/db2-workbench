@@ -533,10 +533,23 @@ export class MemoryCache {
 		return ProcedureUtils.resolveSchema(connectionInfo?.schemas ?? [], procedures, options.procedure);
 	}
 
+	/**
+	 * The procedures a CALL's schema holds under its name, and the overload its argument count runs. Read
+	 * from the cached routine list (one statement for a schema it hasn't seen yet, none after), since
+	 * node-odbc's callProcedure() can't run an overloaded name and DbConnections.execute has to know before
+	 * it calls - see there.
+	 */
+	async resolveCallOverload(options: DbConnections.CommonListOptions & { schema: string; procedure: string; argumentCount: number }): Promise<ProcedureUtils.Overload<SystemRoutine>> {
+		let candidates = await this.findProcedures(options, options.schema, options.procedure);
+		return ProcedureUtils.resolveOverload(candidates, options.schema, options.procedure, options.argumentCount);
+	}
+
 	// A CALL names a procedure by its routine name, but SYSPARMS is keyed by specific name, and the two
 	// differ for an overload or a generated specific name. So the name is looked up in the routine list
-	// first: an overloaded procedure prefers the overload whose specific name is the routine name (the
-	// default when none was given), and a name the list doesn't know is tried as a specific name as-is.
+	// first. An overloaded procedure is chosen by argument count when the caller knows it (a CALL that
+	// ran); otherwise (content assist, mid-typing) it prefers the overload whose specific name is the
+	// routine name (the default when none was given). A name the list doesn't know is tried as a
+	// specific name as-is.
 	async getProcedureParams(options: MemoryCache.ProcedureParamsOptions): Promise<SystemProcedureParam[]> {
 		if(options?.procedure == null) {
 			return [];
@@ -549,17 +562,11 @@ export class MemoryCache {
 			return [];
 		}
 
-		// The library-list scan answers every schema on the list, which is where nearly every CALL's
-		// procedure lives - only a schema off the list costs a lookup of its own.
-		let named = (procedures: SystemRoutine[]) => procedures.filter(candidate =>
-			StringUtils.equalsIgnoreCase(candidate.schema, schema) && StringUtils.equalsIgnoreCase(candidate.name, procedureName));
-		let matches = named(await this.getProcedures({key: options.key, configId: options.configId}));
+		let matches = await this.findProcedures(options, schema, procedureName);
 
-		if(matches.length === 0) {
-			matches = named(await this.getProcedures({key: options.key, configId: options.configId, schema: schema}));
-		}
-
-		let procedure = matches.find(match => StringUtils.equalsIgnoreCase(match.specificName, procedureName)) ?? matches[0];
+		let procedure = (options.argumentCount != null && matches.length > 1 ? ProcedureUtils.resolveOverload(matches, schema, procedureName, options.argumentCount).procedure : undefined)
+			?? matches.find(match => StringUtils.equalsIgnoreCase(match.specificName, procedureName))
+			?? matches[0];
 
 		let params = await this.getRoutineParams({
 			key: options.key,
@@ -568,6 +575,28 @@ export class MemoryCache {
 		});
 
 		return SystemRoutineParam.parameters(params).map(param => ({...param, procedureName: procedure?.name ?? procedureName.toUpperCase()}));
+	}
+
+	// The library-list scan answers every schema on the list, which is where nearly every CALL's
+	// procedure lives - only a schema off the list costs a lookup of its own.
+	private async findProcedures(options: DbConnections.CommonListOptions, schema: string, procedureName: string): Promise<SystemRoutine[]> {
+		let named = (procedures: SystemRoutine[]) => procedures.filter(candidate =>
+			StringUtils.equalsIgnoreCase(candidate.schema, schema) && StringUtils.equalsIgnoreCase(candidate.name, procedureName));
+		let matches = named(await this.getProcedures({key: options.key, configId: options.configId}));
+
+		if(matches.length === 0) {
+			matches = named(await this.getProcedures({key: options.key, configId: options.configId, schema: schema}));
+		}
+
+		return matches;
+	}
+
+	// Drops one schema's routines - its own slot and the library-list scan, which may hold the same rows -
+	// so the next lookup re-reads them. For a routine list found to be out of date (a procedure created
+	// or overloaded since it was cached); see DbConnections.execute.
+	async deleteRoutinesCache(options: DbConnections.CommonListOptions, schema: string): Promise<void> {
+		this.cacheMap.delete(await this.getSchemaEntitiesKey(options, MemoryCache.Keys.SYSTEM_ROUTINES, schema));
+		this.cacheMap.delete(await this.getCacheKey(options, MemoryCache.Keys.SYSTEM_ROUTINES));
 	}
 
 	// Cached per table (like getColumns) rather than as one blob keyed by the whole request, since
@@ -828,6 +857,8 @@ export namespace MemoryCache {
 		schema?: string;
 		/** The name a CALL uses (ROUTINE_NAME). */
 		procedure?: string;
+		/** The CALL's argument count, which picks among overloads - left out where it isn't known yet. */
+		argumentCount?: number;
 	}
 
 	/** What loadSchemaEntities needs to cache and fetch one kind of per-schema catalog row. */

@@ -12,17 +12,20 @@ import { ProgressReport } from '../interfaces/progress-report.js';
 import { ConnectionConfig } from '../models/connection-config.js';
 import { ConnectionSchema } from '../models/connection-schema.js';
 import { SystemProcedureParam } from '../models/system-procedure-param.js';
+import { SystemRoutine } from '../models/system-routine.js';
 import { AlertUtils } from '../utils/alert-utils.js';
+import { ArrayUtils } from '../utils/array-utils.js';
 import { DuplicateColumnChecker } from '../utils/duplicate-column-checker.js';
 import { Nullable } from '../utils/nullable.js';
 import { ObjectComparator } from '../utils/object-comparator.js';
+import { ProcedureUtils } from '../utils/procedure-utils.js';
 import { SpParser } from '../utils/sp-parser.js';
 import { StatementParser } from '../utils/statement-parser.js';
 import { StringUtils } from '../utils/string-utils.js';
 import { Sync } from '../utils/sync.js';
 import { TryUtils } from '../utils/try-utils.js';
 import { DbConnection } from './db-connection.js';
-import { DbResult } from './drivers/db-driver.js';
+import { DbDriver, DbResult } from './drivers/db-driver.js';
 
 export class DbConnections implements vscode.Disposable {
 	private static readonly CONNECT_ACTION = 'Connect';
@@ -313,7 +316,7 @@ export class DbConnections implements vscode.Disposable {
 				if(parseResults.statementType === StatementParser.StatementType.SP) {
 					procedureSchema = await this.resolveCallSchema(options, parseResults);
 					progress.report({ message: 'Executing call...' });
-					return wrapper.connection.callProcedure({ ...parseResults, schema: procedureSchema, parameters: options.parameters ?? parseResults.parameters });
+					return this.runCall(wrapper, options, parseResults, procedureSchema);
 				}
 
 				progress.report({ message: 'Executing query...' });
@@ -338,6 +341,78 @@ export class DbConnections implements vscode.Disposable {
 		} finally {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.READY, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults });
 		}
+	}
+
+	/**
+	 * Runs a user's CALL. node-odbc's callProcedure() looks the procedure up by schema and name and
+	 * compares the parameter count of every procedure it finds with the arguments passed, so an
+	 * overloaded name (QSYS2.QCMDEXC has two) fails every call with DbDriver.OVERLOAD_MISMATCH_MESSAGE whatever
+	 * the arguments. An overloaded procedure therefore runs as a plain statement instead, where DB2
+	 * picks the overload itself. That path returns no OUT/INOUT values, so a warning says so when the
+	 * overload has any. A routine list cached before an overload was created says "not overloaded":
+	 * the driver's refusal is the sign of that, and the schema's routines are re-read once.
+	 */
+	private async runCall(wrapper: ConnectionWrapper, options: DbConnections.ExecuteOptions, parseResults: SpParser.SpParseResults, schema: Nullable<string>): Promise<Nullable<DbResult>> {
+		let parameters = options.parameters ?? parseResults.parameters;
+		let overload = await this.resolveCallOverload(options, parseResults, schema);
+
+		if(overload?.overloaded) {
+			return this.runOverloadedCall(wrapper, options, parseResults, overload, <string>schema);
+		}
+
+		try {
+			return await wrapper.connection.callProcedure({ ...parseResults, schema: schema, parameters: parameters });
+		} catch(error: any) {
+			if(schema == null || !String(error?.message).includes(DbDriver.OVERLOAD_MISMATCH_MESSAGE)) {
+				throw error;
+			}
+
+			await this.extension.memoryCache.deleteRoutinesCache({ key: options.key, configId: options.configId }, schema);
+			overload = await this.resolveCallOverload(options, parseResults, schema);
+
+			if(!overload?.overloaded) {
+				throw error;
+			}
+
+			return this.runOverloadedCall(wrapper, options, parseResults, overload, <string>schema);
+		}
+	}
+
+	private async resolveCallOverload(options: DbConnections.ExecuteOptions, parseResults: SpParser.SpParseResults, schema: Nullable<string>): Promise<Nullable<ProcedureUtils.Overload<SystemRoutine>>> {
+		if(schema == null || !parseResults.name) {
+			return undefined;
+		}
+
+		return this.extension.memoryCache.resolveCallOverload({
+			key: options.key,
+			configId: options.configId,
+			schema: schema,
+			procedure: parseResults.name,
+			argumentCount: parseResults.parameters?.length ?? 0
+		});
+	}
+
+	// The statement is rebuilt with one marker per argument rather than run as written: a CALL's
+	// parameters arrive as the full positional argument list (Commands builds it for callProcedure(),
+	// literals included), so the written text, which still holds those literals, has fewer markers than
+	// there are values.
+	private async runOverloadedCall(wrapper: ConnectionWrapper, options: DbConnections.ExecuteOptions, parseResults: SpParser.SpParseResults, overload: ProcedureUtils.Overload<SystemRoutine>, schema: string): Promise<Nullable<DbResult>> {
+		let parameters = ArrayUtils.toArray(options.parameters ?? parseResults.parameters);
+		let name = [parseResults.catalog, schema, parseResults.name].filter(part => StringUtils.isNotBlank(part)).map(part => (<string>part).toUpperCase()).join('.');
+		let sql = parameters.length === 0 ? `CALL ${name}` : `CALL ${name}(${parameters.map(() => '?').join(', ')})`;
+
+		let result = await wrapper.connection.query({ sql: sql, parameters: parameters });
+		let procedure = overload.procedure;
+
+		if(procedure != null) {
+			let params = await this.extension.memoryCache.getProcedureParams({ key: options.key, configId: options.configId, schema: procedure.schema, procedure: procedure.name, argumentCount: procedure.parameterCount });
+
+			if(params.some(param => !StringUtils.equalsIgnoreCase(param.parameterMode, 'IN'))) {
+				AlertUtils.onWarning(`${procedure.schema}.${procedure.name} is overloaded, so its output parameter values can't be shown.`);
+			}
+		}
+
+		return result;
 	}
 
 	/**
@@ -373,7 +448,7 @@ export class DbConnections implements vscode.Disposable {
 		let procedureParams: SystemProcedureParam[];
 
 		try {
-			procedureParams = await this.extension.memoryCache.getProcedureParams({ key: options.key, configId: options.configId, schema: parseResults.schema, procedure: <string>parseResults.name });
+			procedureParams = await this.extension.memoryCache.getProcedureParams({ key: options.key, configId: options.configId, schema: parseResults.schema, procedure: <string>parseResults.name, argumentCount: parseResults.parameters?.length ?? 0 });
 		} catch {
 			// Procedure/schema couldn't be resolved against the catalog (e.g. a name typo, or a
 			// procedure the connected user can't see) - nothing to show rather than surfacing a

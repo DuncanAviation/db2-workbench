@@ -127,7 +127,7 @@ export class CatalogQueries {
 		let parameters: (Parameter)[];
 
 		let columns = `select specific_schema, specific_name, routine_schema, routine_name, routine_type, function_type, function_origin, ` +
-			`routine_body, external_language, routine_text, long_comment ` +
+			`routine_body, external_language, routine_text, long_comment, in_parms, out_parms, inout_parms ` +
 			`from qsys2.sysroutines `;
 
 		let schemas: string[] = options?.schemas?.length ? <string[]>options.schemas : (StringUtils.isNotBlank(options?.schema) ? [<string>options.schema] : []);
@@ -164,7 +164,8 @@ export class CatalogQueries {
 				language: StringUtils.trim(<string>row['EXTERNAL_LANGUAGE'], {removeDuplicateWhiteSpace: true}),
 				// The LABEL ON text, as a table's description is - falling back to the longer COMMENT ON text.
 				description: StringUtils.trim(<string>row['ROUTINE_TEXT'], {removeDuplicateWhiteSpace: true, toUndefined: true})
-					?? StringUtils.trim(<string>row['LONG_COMMENT'], {removeDuplicateWhiteSpace: true})
+					?? StringUtils.trim(<string>row['LONG_COMMENT'], {removeDuplicateWhiteSpace: true}),
+				parameterCount: Number(row['IN_PARMS'] ?? 0) + Number(row['OUT_PARMS'] ?? 0) + Number(row['INOUT_PARMS'] ?? 0)
 			};
 		});
 	}
