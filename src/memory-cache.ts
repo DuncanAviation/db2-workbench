@@ -684,20 +684,25 @@ export class MemoryCache {
 		return resolved;
 	}
 
-	// The schema a bare table name resolves to: the first one on the connection's schema list (in that
-	// list's own order) that has a table or view by this name. Views count because SYSCOLUMNS2 and the
-	// other per-table catalogs answer for a view exactly as for a table - leaving them out here drops a
-	// view before it is ever queried, so it gets no columns.
+	// The schema a bare table name resolves to: the first one on the session's library list, in that
+	// list's own order, that has a table or view by this name - the one DB2 itself would pick under system
+	// naming. Ranked by the session's ConnectionInfo rather than the schema catalog, which is ordered by
+	// name and covers schemas a bare name never reaches. Views count because SYSCOLUMNS2 and the other
+	// per-table catalogs answer for a view exactly as for a table - leaving them out here drops a view
+	// before it is ever queried, so it gets no columns.
 	private async findSchemaForTable(options: DbConnections.CommonListOptions, table: string): Promise<string | undefined> {
-		let schemas = await this.getSchemas(options);
-		let tables = await this.getRelations(options);
+		// Only the session identity is passed on: a caller's options can carry a `schema` of their own
+		// (content assist passes the connection's default table schema), and getRelations() would narrow
+		// to that one schema, leaving a bare name that lives elsewhere on the list with no candidate.
+		let session = {key: options.key, configId: options.configId};
+		let libraryList = (await this.extension.connections.getConnectionInfo(session))?.schemas ?? [];
+		let relations = await this.getRelations(session);
 
-		let schemaRank = (schema: string) => schemas.findIndex(findSchema => StringUtils.equalsIgnoreCase(findSchema.name, schema));
-		let matches = tables
-			.filter(candidate => StringUtils.equalsIgnoreCase(candidate.name, table) && schemas.some(findSchema => StringUtils.equalsIgnoreCase(findSchema.name, candidate.schema)))
-			.sort((first, second) => schemaRank(first.schema) - schemaRank(second.schema));
+		let rank = (schema: string) => libraryList.findIndex(entry => StringUtils.equalsIgnoreCase(entry.name, schema));
 
-		return matches.length === 0 ? undefined : matches[0].schema;
+		return relations
+			.filter(candidate => StringUtils.equalsIgnoreCase(candidate.name, table) && rank(candidate.schema) >= 0)
+			.sort((first, second) => rank(first.schema) - rank(second.schema))[0]?.schema;
 	}
 
 	// A row belongs to a target when their tables match and either the target named no schema (a

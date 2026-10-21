@@ -533,6 +533,43 @@ suite('MemoryCache against the fake driver', () => {
 		}
 	});
 
+	// A bare name resolves to the first schema on the library list holding it, as DB2 does under system
+	// naming - not the alphabetically first. The test library sits ahead of production here, and
+	// SYSSCHEMAS is answered in name order (as the real statement's ORDER BY returns it), so a ranking
+	// taken from the schema catalog rather than the library list lands on APPL.
+	test('a bare table name resolves to the first schema on the library list that has it', async () => {
+		let key = 'test://cache-bare-name-order';
+		let database = defineFakeDatabase({
+			schemas: [
+				{ name: 'APPLT', tables: [{ name: 'CUSTOMER', columns: [{ systemName: 'TESTCOL', dataType: 'CHAR', length: 10 }] }] },
+				{ name: 'APPL', tables: [{ name: 'CUSTOMER', columns: [{ systemName: 'PRODCOL', dataType: 'CHAR', length: 10 }] }] }
+			]
+		});
+
+		TestSupport.recordStatements({
+			database: database,
+			responses: [{
+				match: /from qsys2\.sysschemas/i,
+				rows: [
+					{ SYS_NAME: 'APPL', LABEL: '', SCHEMA_TYPE: 'User' },
+					{ SYS_NAME: 'APPLT', LABEL: '', SCHEMA_TYPE: 'User' }
+				]
+			}]
+		});
+
+		try {
+			let columns = await extension.memoryCache.getColumns({ key: key, configId: TestSupport.CONFIG_ID, tables: { table: 'CUSTOMER' } });
+			assert.deepStrictEqual(columns.map(column => `${column.schema}.${column.tableName}.${column.systemName}`), ['APPLT.CUSTOMER.TESTCOL']);
+
+			// Content assist's options carry the connection's default table schema; that must not narrow
+			// the candidates a bare name is resolved from.
+			let fromAssist = await extension.memoryCache.getColumns(<Parameters<typeof extension.memoryCache.getColumns>[0]>{ key: key, configId: TestSupport.CONFIG_ID, schema: 'APPL', tables: { table: 'CUSTOMER' } });
+			assert.deepStrictEqual(fromAssist.map(column => `${column.schema}.${column.tableName}.${column.systemName}`), ['APPLT.CUSTOMER.TESTCOL']);
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
 	// A MULTI trigger's events live in their own flag columns, and an external trigger has no body - both
 	// are mapped rather than passed through, so both are pinned here. Deleting the cache is the Triggers
 	// tab's Refresh.
