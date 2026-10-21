@@ -25,6 +25,10 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 - The results grid and the Data tab are only as wide as their columns, instead of stretching the last column across the rest of the panel.
 - Formatting SQL pasted from TypeScript, JavaScript, Java or C# now handles a query built up over several statements: `sql += ...`, `sql = sql + ...` and `StringBuilder.append(...)` lines are joined into one query, and a value appended after the last string is kept as a parameter. Before, the statement syntax between the strings came out as stray parameters.
 
+### Fixed
+
+- Calling an overloaded procedure, one name with several parameter lists such as `QSYS2.QCMDEXC`, no longer fails with "The number of parameters the procedure expects and and the number of passed parameters is not equal". DB2 picks the overload from the number of arguments. Output parameter values of an overloaded procedure can't be shown, and a warning says so when it has any.
+
 ## [0.1.0] - 2026-10-12
 
 First Marketplace release, published as a pre-release.

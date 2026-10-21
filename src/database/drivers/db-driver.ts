@@ -115,6 +115,13 @@ export interface DbColumnDefinition {
 
 export namespace DbDriver {
 	/**
+	 * How callProcedure() refuses a CALL whose argument count differs from the procedure's parameter
+	 * count - node-odbc's own wording, "and and" included, which FakeDriver reproduces. node-odbc counts
+	 * every procedure of the name, so an overloaded one is always refused (see DbConnections.runCall).
+	 */
+	export const OVERLOAD_MISMATCH_MESSAGE = 'The number of parameters the procedure expects and and the number of passed parameters is not equal';
+
+	/**
 	 * What a driver needs to open a connection, as separate values rather than a pre-built string, so
 	 * a non-ODBC driver (JDBC, a native IBM i driver) can build its own URL/handshake from the same
 	 * ConnectionConfig instead of parsing ODBC syntax.

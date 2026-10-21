@@ -246,7 +246,25 @@ class FakeDriverConnection implements DbDriverConnection {
 	constructor(private driver: FakeDriver) { }
 
 	async query(options: DbDriver.QueryOptions): Promise<Nullable<DbResult>> {
+		FakeDriverConnection.checkMarkerCount(options);
 		return FakeDriver.toResult(await this.driver.resolve(options.sql, options.parameters));
+	}
+
+	/**
+	 * node-odbc refuses a statement whose `?` markers don't match the values bound to it. Made here too,
+	 * so a caller that binds values to text that doesn't carry their markers fails in a test the way it
+	 * fails live. Markers inside string literals and delimited identifiers don't count.
+	 */
+	private static checkMarkerCount(options: DbDriver.QueryOptions): void {
+		if(options.parameters == null) {
+			return;
+		}
+
+		let markers = options.sql.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, '').split('?').length - 1;
+
+		if(markers !== options.parameters.length) {
+			throw FakeDriver.toError({ message: '[odbc] The number of parameter markers in the statement does not equal the number of bind values passed to the function.' });
+		}
 	}
 
 	/**
@@ -258,12 +276,37 @@ class FakeDriverConnection implements DbDriverConnection {
 	async callProcedure(options: DbDriver.CallProcedureOptions): Promise<Nullable<DbResult>> {
 		let call = `call ${StringUtils.default(options.schema, () => '')}.${StringUtils.default(options.name, () => '')}`;
 		let rows = await this.driver.resolve(call, options.parameters);
+
+		// Checked after resolve() so a refused call is still recorded - node-odbc does reach the server first.
+		this.checkParameterCount(options);
 		let result = FakeDriver.toResult(rows);
 		result.parameters = this.driver.findResponse(call, options.parameters)?.parameters ?? <Array<Parameter>>ArrayUtils.toArray(options.parameters);
 		return result;
 	}
 
+	/**
+	 * node-odbc's own check, made the same way: it reads the parameters of every procedure with this
+	 * schema and name (SQLProcedureColumns can't be given a specific name) and refuses the call unless
+	 * their total equals the arguments passed - which an overloaded name can never satisfy. A procedure
+	 * the fixture doesn't declare isn't checked, so a test can still answer a CALL from `responses` alone.
+	 */
+	private checkParameterCount(options: DbDriver.CallProcedureOptions): void {
+		let schema = this.driver.database?.schemas.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, options.schema));
+		let procedures = schema?.procedures.filter(procedure => StringUtils.equalsIgnoreCase(procedure.name, options.name)) ?? [];
+
+		if(procedures.length === 0) {
+			return;
+		}
+
+		let expected = procedures.reduce((total, procedure) => total + procedure.parameters.length, 0);
+
+		if(expected !== ArrayUtils.toArray(options.parameters).length) {
+			throw FakeDriver.toError({ message: `[odbc] ${DbDriver.OVERLOAD_MISMATCH_MESSAGE}` });
+		}
+	}
+
 	async openCursor(options: DbDriver.CursorOptions): Promise<DbCursor> {
+		FakeDriverConnection.checkMarkerCount(options);
 		let rows = await this.driver.resolve(options.sql, options.parameters);
 		return new FakeCursor(rows, options.fetchSize ?? this.driver.fetchSize);
 	}

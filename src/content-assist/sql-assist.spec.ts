@@ -41,7 +41,7 @@ function table(overrides: Partial<SystemTable> = {}): SystemTable {
 function routine(overrides: Partial<SystemRoutine> = {}): SystemRoutine {
 	return {
 		schema: 'MYSCHEMA', name: 'MYFUNC', specificName: overrides.name ?? 'MYFUNC', sqlSchema: 'MYSCHEMA', routineType: 'FUNCTION', functionType: 'S',
-		functionOrigin: 'Q', body: 'SQL', language: 'SQL', description: '',
+		functionOrigin: 'Q', body: 'SQL', language: 'SQL', description: '', parameterCount: 0,
 		...overrides
 	};
 }
