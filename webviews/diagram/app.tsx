@@ -1587,6 +1587,7 @@ export function App() {
 			/>
 
 			<EditSchemaListDialog
+				mode="overrides"
 				open={editSchemaListDialogOpen}
 				schemaList={schemaList}
 				onCancel={() => setEditSchemaListDialogOpen(false)}

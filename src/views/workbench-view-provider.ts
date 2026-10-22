@@ -1,6 +1,7 @@
 import { concatMap, Subject } from 'rxjs';
 import * as vscode from 'vscode';
 import { DbColumnDefinition, DbDriver } from '../database/drivers/db-driver.js';
+import { CatalogLookupError } from '../database/queries/catalog-lookup.js';
 import { ConnectionConfigEvent } from '../events/connection-config-event.js';
 import { DbConnectionEvent } from '../events/db-connection-event.js';
 import { Event } from '../events/event.js';
@@ -189,7 +190,22 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 			this.onFetched(event);
 		} else if(event.eventType === DbConnectionEvent.EventType.RESULT) {
 			this.onResult(event);
+		} else if(event.eventType === DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED) {
+			this.onLibraryListChanged(event);
 		}
+	}
+
+	// Only the connection tab changes. Open results keep their column labels: they describe what the
+	// statement resolved against when it ran.
+	private onLibraryListChanged(dbConnectionEvent: DbConnectionEvent) {
+		let currentSession = this.sqlSessions.get(dbConnectionEvent.key);
+
+		if(currentSession == null) {
+			return;
+		}
+
+		currentSession.connectionInfo = dbConnectionEvent.connectionInfo;
+		this.render();
 	}
 
 	private onConnecting(dbConnectionEvent: DbConnectionEvent) {
@@ -540,7 +556,11 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	private async onMessage(message: ResultsOutboundMessage): Promise<void> {
-		if (message.command === 'loadMore') {
+		if (message.command === 'setLibraryList') {
+			await this.setLibraryList(message.uri, message.userLibraries);
+		} else if (message.command === 'checkLibrary') {
+			await this.checkLibrary(message.uri, message.requestId, message.library);
+		} else if (message.command === 'loadMore') {
 			await this.extension.connections.fetch({key: <string>this.activeUri});
 		} else if (message.command === 'selectSession') {
 			this.setActiveUri(message.uri);
@@ -588,6 +608,39 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 			let driver = this.extension.drivers.get(session.configuration);
 			await driver.checkSetup?.(StringUtils.default(session.configuration.connectionString, () => driver.defaultConnectionString));
 		}
+	}
+
+	// The new list itself reaches the webview through the LIBRARY_LIST_CHANGED render, like any other session
+	// change; the answer only closes the dialog, or keeps it open on the error. A refusal (CPF2110 for a
+	// missing library, a limited-capability user) goes back to the dialog rather than to a toast, so its
+	// driver chain can be read and copied there.
+	private async setLibraryList(uri: string, userLibraries: string[]): Promise<void> {
+		let session = this.sqlSessions.get(uri);
+		let error: Nullable<DbErrorUtils.SerializedError>;
+
+		try {
+			await this.extension.connections.setLibraryList({key: uri, configId: session?.configuration.id}, userLibraries);
+		} catch(caught) {
+			error = DbErrorUtils.serialize(caught);
+		}
+
+		this.broadcastMessage({command: 'libraryListResult', uri: uri, error: error});
+	}
+
+	// On the worker connection (every catalog lookup is), so it answers whatever the main job is doing.
+	private async checkLibrary(uri: string, requestId: number, library: string): Promise<void> {
+		let session = this.sqlSessions.get(uri);
+		let exists = false;
+		let error: Nullable<DbErrorUtils.SerializedError>;
+
+		try {
+			let found = await this.extension.catalogQueries.listExistingLibraries({key: uri, configId: session?.configuration.id, progressMessage: 'Checking the library...'}, [library.toUpperCase()]);
+			exists = found.length > 0;
+		} catch(caught) {
+			error = DbErrorUtils.serialize(caught instanceof CatalogLookupError ? caught.driverError ?? caught : caught);
+		}
+
+		this.broadcastMessage({command: 'libraryCheckResult', uri: uri, requestId: requestId, exists: exists, error: error});
 	}
 
 	private async startFetchAll(uri: string): Promise<void> {
@@ -734,7 +787,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider {
 					createdDate: session.connectionInfo.workerJobDetails.createdDate.toISOString(),
 					sortSequence: session.connectionInfo.workerJobDetails.sortSequence
 				},
-				schemas: session.connectionInfo.schemas.map(schema => ({name: schema.name}))
+				schemas: session.connectionInfo.schemas.map(schema => ({name: schema.name, type: schema.type}))
 			} : undefined,
 			resultBorderColor: session.configuration.resultBorderColor,
 			histories: session.histories.map(history => this.mapHistory(history, this.extension.drivers.get(session.configuration))),

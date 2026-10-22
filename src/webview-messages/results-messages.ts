@@ -44,7 +44,8 @@ export interface ResultsJobDetails {
 export interface ResultsConnectionInfo {
 	jobDetails: ResultsJobDetails;
 	workerJobDetails: ResultsJobDetails;
-	schemas: { name: string }[];
+	/** The session's library list in order, typed as QSYS2.LIBRARY_LIST_INFO.TYPE reports each entry. */
+	schemas: { name: string; type: string }[];
 }
 
 export interface ResultsSqlParameter {
@@ -145,7 +146,26 @@ export interface AddRowsMessage {
 	isCursorOpen: boolean;
 }
 
-export type ResultsInboundMessage = SessionsStateMessage | AddRowsMessage;
+// The host's answer to a SetLibraryListMessage. On success the new list arrives with the next
+// sessionsState, like any other session change; this only tells the live Edit Library List dialog to
+// close, or to stay open on the user's edits and show why the change was refused.
+export interface LibraryListResultMessage {
+	command: 'libraryListResult';
+	uri: string;
+	error?: DbErrorUtils.SerializedError;
+}
+
+// The host's answer to a CheckLibraryMessage. `exists` is false only when the lookup ran and found no
+// such library; a lookup that failed carries `error` instead.
+export interface LibraryCheckResultMessage {
+	command: 'libraryCheckResult';
+	uri: string;
+	requestId: number;
+	exists: boolean;
+	error?: DbErrorUtils.SerializedError;
+}
+
+export type ResultsInboundMessage = SessionsStateMessage | AddRowsMessage | LibraryListResultMessage | LibraryCheckResultMessage;
 
 export interface SelectSessionMessage {
 	command: 'selectSession';
@@ -202,4 +222,22 @@ export interface CheckDriverSetupMessage {
 	command: 'checkDriverSetup';
 }
 
-export type ResultsOutboundMessage = SelectSessionMessage | LoadMoreMessage | AddConnectionMessage | FetchAllMessage | CancelFetchAllMessage | ExportDataMessage | ReconnectMessage | SetParameterValueMessage | ExecuteSqlMessage | CheckDriverSetupMessage;
+// Sets the user portion of a session's library list, on both its jobs, for as long as it stays connected
+// (DbConnections.setLibraryList). Answered with a LibraryListResultMessage.
+export interface SetLibraryListMessage {
+	command: 'setLibraryList';
+	uri: string;
+	userLibraries: string[];
+}
+
+// Asks whether a library exists before the live Edit Library List dialog adds it, so a name that isn't
+// on the system is refused at Add rather than failing the whole change at OK. Answered with a
+// LibraryCheckResultMessage carrying the same requestId.
+export interface CheckLibraryMessage {
+	command: 'checkLibrary';
+	uri: string;
+	requestId: number;
+	library: string;
+}
+
+export type ResultsOutboundMessage = SetLibraryListMessage | CheckLibraryMessage | SelectSessionMessage | LoadMoreMessage | AddConnectionMessage | FetchAllMessage | CancelFetchAllMessage | ExportDataMessage | ReconnectMessage | SetParameterValueMessage | ExecuteSqlMessage | CheckDriverSetupMessage;

@@ -72,6 +72,28 @@ suite('WorkbenchViewProvider sessions', () => {
 		}
 	});
 
+	// The connection tab renders session.connectionInfo, so a library list change has to land there - from
+	// the live dialog's setLibraryList and from a library command the user ran - without touching the rows
+	// the last statement left behind.
+	test('a library list change updates the session\'s connection info and leaves its rows alone', async () => {
+		let key = 'test://session-library-list.sql';
+
+		try {
+			await TestSupport.execute(key, 'select * from sales.customer');
+			assert.deepStrictEqual(session(key).connectionInfo?.schemas.map(schema => schema.name), ['SALES']);
+
+			await extension.connections.setLibraryList({ key: key, configId: TestSupport.CONFIG_ID }, ['ARCHIVE', 'SALES']);
+			assert.deepStrictEqual(session(key).connectionInfo?.schemas.map(schema => `${schema.name}:${schema.type}`), ['ARCHIVE:USER', 'SALES:USER']);
+			assert.strictEqual(session(key).rows.length, 3);
+
+			await TestSupport.execute(key, 'CALL QSYS2.QCMDEXC(\'RMVLIBLE LIB(ARCHIVE)\')');
+			assert.deepStrictEqual(session(key).connectionInfo?.schemas.map(schema => schema.name), ['SALES']);
+		} finally {
+			extension.resultsViewProvider.closeSession(key);
+			await TestSupport.closeSessions(key);
+		}
+	});
+
 	test('a second statement on a session replaces its rows rather than appending to them', async () => {
 		let key = 'test://session-replace.sql';
 
