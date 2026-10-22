@@ -16,6 +16,9 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 - **Copy column names from a header.** Right-clicking a column header in the results grid or the Data tab offers Copy Name, Copy Long Name and Copy Description.
 - **Copy names from a diagram.** Right-clicking a table's header on a diagram offers Copy Name for the table; right-clicking one of its columns offers the same Copy Name, Copy Long Name and Copy Description as a grid header.
 - **Duplicate Row.** In the Data tab's edit mode, a row's menu offers Duplicate Row, which adds a new row at the top of the grid with the same values. Identity and LOB columns are left out, as they are for Add Row.
+- **Edit a connection's library list.** The results panel's Connection tab lists the session's library list with each entry's type, and its edit button opens a dialog to reorder, add and remove the user libraries. The change applies to that SQL tab's connection only and lasts until it disconnects; content assist, column headings and unqualified names follow it straight away. A library that doesn't exist is refused when you add it, and a change the system refuses is shown in the dialog with its full error detail.
+- Library list commands you run yourself through `QSYS2.QCMDEXC` (`ADDLIBLE`, `RMVLIBLE`, `CHGLIBL` and the like) are picked up: the Connection tab shows the new list and a message says it was updated.
+- A copy button next to the Connection tab's schema list copies the library names as a comma-separated list.
 - **Copy an error.** Database errors have a Copy error button next to their message, which copies the message together with every line of the driver's error detail. It appears on failed statements in the results panel's History tab and the Data tab's Run SQL panel, on the schema browser tabs' load errors, and in the SQL import steps.
 
 ### Changed
