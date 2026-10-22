@@ -96,21 +96,34 @@ export function buildTablePredicate(targets: TableTarget[], columns: TablePredic
  * caller whose statement is cheap per target can pass a larger size (see RoutineQueries).
  */
 export function chunkTableTargets(targets: TableTarget[], size = MAX_TARGETS_PER_QUERY): TableTarget[][] {
-	if(targets.length === 0) {
-		return [];
-	}
+	return chunkValues(targets, size);
+}
 
-	let chunks: TableTarget[][] = [];
+export const MAX_TARGETS_PER_QUERY = 25;
+
+/**
+ * Splits a schema list for the `schema in (?, ...)` statements (CatalogQueries' table, view and routine
+ * lists), which a whole library list now reaches: without the library list join, a long list would
+ * otherwise become one unbounded parameter marker list. Blank names are dropped, and the rest are
+ * upper-cased and de-duplicated in their original order, so a chunk never asks for the same schema twice.
+ */
+export function chunkSchemaNames(schemas: string[], size = MAX_SCHEMAS_PER_QUERY): string[][] {
+	let names = [...new Set(schemas.filter(schema => StringUtils.isNotBlank(schema)).map(schema => schema.trim().toUpperCase()))];
+	return chunkValues(names, size);
+}
+
+export const MAX_SCHEMAS_PER_QUERY = 50;
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+	let chunks: T[][] = [];
 	let step = Math.max(1, size);
 
-	for(let index = 0; index < targets.length; index += step) {
-		chunks.push(targets.slice(index, index + step));
+	for(let index = 0; index < values.length; index += step) {
+		chunks.push(values.slice(index, index + step));
 	}
 
 	return chunks;
 }
-
-export const MAX_TARGETS_PER_QUERY = 25;
 
 /**
  * The shape every catalog list query now has: normalize the targets, run one statement per chunk, map

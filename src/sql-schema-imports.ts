@@ -905,8 +905,8 @@ export class SqlSchemaImports {
 	}
 
 	// Every table the converter is allowed to attach a row to: the import's own Tables statement plus
-	// whatever DB2 itself has. getTables() is the eager, already-cached library-list scan the schema tree
-	// is built from, so this costs nothing beyond the first call for a connection.
+	// whatever DB2 itself has. getTables() composes the session's library list from the same per-schema
+	// slots the schema tree is built from, so this costs nothing beyond the first call for a connection.
 	private async getKnownTables(options: SqlSchemaImports.LoadOptions, importTableKeys: Set<string>): Promise<Set<string>> {
 		let known = new Set(importTableKeys);
 		let tables = await this.extension.memoryCache.getTables({key: options.key, configId: options.configId});

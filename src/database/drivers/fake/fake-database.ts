@@ -36,9 +36,9 @@ export interface FakeSchema {
 	description: string;
 	/** 'User' or 'System', as CatalogQueries.listSchemas classifies them. */
 	type: string;
-	/** Whether this schema is on the connection's library list - the eager "list every table" query
-	 * joins QSYS2.LIBRARY_LIST_INFO, so a schema that isn't on the list is only reachable by asking
-	 * for it by name, exactly as on a real system. */
+	/** Whether this schema is on the connection's library list, as QSYS2.LIBRARY_LIST_INFO reports it.
+	 * A session lists its eager tables, views and routines from that list, so a schema that isn't on it
+	 * is only reachable by asking for it by name, exactly as on a real system. */
 	onLibraryList: boolean;
 	tables: FakeTable[];
 	/** Answered from QSYS2.SYSVIEWS, and by every per-table lookup a view shares with a table (columns,

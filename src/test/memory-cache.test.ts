@@ -486,8 +486,89 @@ suite('MemoryCache against the fake driver', () => {
 		}
 	});
 
-	// Views are listed the way tables are: the library-list scan for the tree's eager load, and a batch by
-	// name for everything else - so a view in a schema off the list is only found when asked for.
+	// Nothing cached depends on a job's library list: every slot holds one schema's rows, and each session
+	// composes its eager lists from its own ConnectionInfo. Two sessions on one config can have different
+	// lists (and phase 2 lets one change while it is open), so a whole-list slot would hand one session
+	// the other's list. A ConnectionWrapper keeps the driver it was opened with, which is what gives the
+	// second session a library list of its own here.
+	test('two sessions on one connection with different library lists each see their own eager lists, sharing per-schema slots', async () => {
+		let firstKey = 'test://cache-library-list-a';
+		let secondKey = 'test://cache-library-list-b';
+		let firstRecorder = TestSupport.recordStatements();
+
+		try {
+			await openSession(firstKey, firstRecorder);
+
+			let firstTables = await extension.memoryCache.getTables({ key: firstKey, configId: TestSupport.CONFIG_ID });
+			assert.deepStrictEqual([...new Set(firstTables.map(table => table.schema))], ['SALES']);
+
+			let secondRecorder = TestSupport.recordStatements({
+				database: TestSupport.DATABASE,
+				responses: [{
+					match: /from qsys2\.library_list_info/i,
+					rows: [
+						{ ORDINAL_POSITION: 1, SYSTEM_SCHEMA_NAME: 'ARCHIVE', TYPE: 'USER', TEXT_DESCRIPTION: '' },
+						{ ORDINAL_POSITION: 2, SYSTEM_SCHEMA_NAME: 'SALES', TYPE: 'USER', TEXT_DESCRIPTION: '' }
+					]
+				}]
+			});
+
+			await openSession(secondKey, secondRecorder);
+
+			// The second session's own list, in its own order - ARCHIVE ahead of SALES.
+			let secondTables = await extension.memoryCache.getTables({ key: secondKey, configId: TestSupport.CONFIG_ID });
+			assert.deepStrictEqual([...new Set(secondTables.map(table => table.schema))], ['ARCHIVE', 'SALES']);
+			assert.deepStrictEqual(secondTables.filter(table => table.schema === 'ARCHIVE').map(table => table.name), ['ORDERS2024']);
+
+			// SALES was cached by the first session, so only ARCHIVE reached the driver.
+			let tableStatements = secondRecorder.matching(/from qsys2\.systables/);
+			assert.strictEqual(tableStatements.length, 1);
+			assert.deepStrictEqual(tableStatements[0].parameters.map(parameter => String(parameter)), ['ARCHIVE']);
+
+			// ...and the first session's list is unchanged by the second one's, with no query of its own.
+			firstRecorder.clear();
+			let firstAgain = await extension.memoryCache.getTables({ key: firstKey, configId: TestSupport.CONFIG_ID });
+			assert.deepStrictEqual([...new Set(firstAgain.map(table => table.schema))], ['SALES']);
+			assert.strictEqual(firstRecorder.matching(/from qsys2\.systables/).length, 0);
+
+			// Bare names rank by each session's own list too: the second session's ARCHIVE entry is a
+			// candidate there, and is no candidate at all for the first session.
+			let firstRelations = await extension.memoryCache.getRelations({ key: firstKey, configId: TestSupport.CONFIG_ID });
+			let secondRelations = await extension.memoryCache.getRelations({ key: secondKey, configId: TestSupport.CONFIG_ID });
+			assert.ok(!firstRelations.some(relation => relation.schema === 'ARCHIVE'));
+			assert.ok(secondRelations.some(relation => relation.schema === 'ARCHIVE' && relation.name === 'ORDERS2024V' && relation.kind === 'view'));
+		} finally {
+			await TestSupport.closeSessions(firstKey, secondKey);
+		}
+	});
+
+	// A procedure's overloads are read from its schema's own routine slot, whichever session filled it: a
+	// schema off this session's list (ARCHIVE) is looked up on its own, and a second lookup is a hit.
+	test('a CALL\'s overloads come from the schema\'s own slot, on or off the library list', async () => {
+		let key = 'test://cache-call-overloads';
+		let recorder = TestSupport.recordStatements();
+
+		try {
+			await openSession(key, recorder);
+
+			let onList = await extension.memoryCache.resolveCallOverload({ key: key, configId: TestSupport.CONFIG_ID, schema: 'SALES', procedure: 'ORDER_TOTAL', argumentCount: 1 });
+			assert.strictEqual(onList.procedure?.specificName, 'ORDER_TOTAL_RECALC1');
+
+			recorder.clear();
+			await extension.memoryCache.resolveCallOverload({ key: key, configId: TestSupport.CONFIG_ID, schema: 'SALES', procedure: 'ORDER_TOTAL', argumentCount: 0 });
+			assert.strictEqual(recorder.matching(/sysroutines/).length, 0, 'the schema\'s routines are cached');
+
+			await extension.memoryCache.resolveCallOverload({ key: key, configId: TestSupport.CONFIG_ID, schema: 'ARCHIVE', procedure: 'NO_SUCH_PROC', argumentCount: 0 });
+			let archiveStatements = recorder.matching(/sysroutines/);
+			assert.strictEqual(archiveStatements.length, 1);
+			assert.deepStrictEqual(archiveStatements[0].parameters.map(parameter => String(parameter)), ['ARCHIVE']);
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	// Views are listed the way tables are: composed from the library list for the tree's eager load, and a
+	// batch by name for everything else - so a view in a schema off the list is only found when asked for.
 	test('views list from the library list, or by schema name, each schema cached on its own', async () => {
 		let key = 'test://cache-views';
 		let recorder = TestSupport.recordStatements();

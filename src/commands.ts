@@ -525,9 +525,8 @@ export class Commands implements vscode.Disposable {
 			return;
 		}
 
-		// A schema-qualified reference fetches just that one schema directly instead of the full
-		// library-list cross-schema scan - trusts the SQL text over library-list membership, and works
-		// for any schema now (CatalogQueries.listTables' schema-scoped branch no longer requires it).
+		// A schema-qualified reference fetches just that one schema directly instead of every schema on
+		// the library list - trusts the SQL text over library-list membership, and works for any schema.
 		// Whether the resolved table ends up visible in the tree (added/unhidden if needed) is
 		// SchemasProvider.show's job, not this method's - this only needs to know whether it exists.
 		// Views count as well as tables - the tree lists both, and a view opens its own view tab.

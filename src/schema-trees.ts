@@ -183,10 +183,6 @@ export class SchemaTrees {
 		let {key, configId} = options;
 		let overrides = options.overrides ?? this.extension.globalStates.getSchemaListOverrides(configId);
 
-		// The eager (no `schema`) branch of getTables() - returns every table in the connection's
-		// library list in one call. No listSchemas call, no lazy per-schema fetch - see the "Data layer"
-		// section of the schemas-browser plan for why.
-		let libraryTables = await this.extension.memoryCache.getTables({key: key, configId: configId});
 		let connectionInfo = await this.extension.connections.getConnectionInfo({key: key, configId: configId});
 		let libraryListSchemaNames = connectionInfo?.schemas.map(schema => schema.name) ?? [];
 
@@ -200,41 +196,33 @@ export class SchemaTrees {
 			.map(table => table.schema)
 			.filter((schema): schema is string => StringUtils.isNotBlank(schema));
 
-		// Everything the eager scan above didn't cover - user-added schemas, and schemas that only exist
-		// because an import named them - queried by name in one batch, however many there are. See
-		// findSchemasToFetch for why an import's schema is worth a query even when nothing on this system
-		// answers to it. The per-schema cache slots this primes are the same ones the table tabs' own
-		// lookups read (see MemoryCache.getTablesForSchema), so this costs one query, not one per surface.
-		let fetchSchemaNames = findSchemasToFetch({
-			libraryListSchemaNames: libraryListSchemaNames,
-			addedSchemaNames: overrides.added,
-			importedSchemaNames: importedSchemaNames,
-			hiddenSchemaNames: overrides.hidden
-		});
+		// Everything off the library list - user-added schemas, and schemas that only exist because an
+		// import named them - joins the visible library-list schemas in one batch, however many there are.
+		// See findSchemasToFetch for why an import's schema is worth a query even when nothing on this
+		// system answers to it. Hidden schemas aren't shown, so they aren't fetched either. The per-schema
+		// cache slots this primes are the same ones the table tabs' own lookups and every session's
+		// library-list composition read (see MemoryCache.getTables), so this costs one query, not one per
+		// surface.
+		let treeSchemaNames = [
+			...libraryListSchemaNames.filter(name => !overrides.hidden.some(hidden => StringUtils.equalsIgnoreCase(hidden, name))),
+			...findSchemasToFetch({
+				libraryListSchemaNames: libraryListSchemaNames,
+				addedSchemaNames: overrides.added,
+				importedSchemaNames: importedSchemaNames,
+				hiddenSchemaNames: overrides.hidden
+			})
+		];
 
-		let fetchedTables = fetchSchemaNames.length > 0
-			? await this.extension.memoryCache.getTablesForSchemas({key: key, configId: configId}, fetchSchemaNames)
-			: [];
+		let tables = await this.extension.memoryCache.getTablesForSchemas({key: key, configId: configId}, treeSchemaNames);
+		let groupedTables = ArrayUtils.toMapOfArrays(tables, table => table.schema.toUpperCase(), table => SchemaTrees.toSchemasSystemTable(table));
 
-		let groupedTables = ArrayUtils.toMapOfArrays([...libraryTables, ...fetchedTables], table => table.schema.toUpperCase(), table => SchemaTrees.toSchemasSystemTable(table));
+		// Views come from the same batch as tables, so a schema added by name shows its views as well as its tables.
+		let views = await this.extension.memoryCache.getViewsForSchemas({key: key, configId: configId}, treeSchemaNames);
+		let groupedViews = ArrayUtils.toMapOfArrays(views, view => view.schema.toUpperCase(), view => view);
 
-		// Views come from the same two sources as tables - the library-list scan plus one batch for every
-		// other schema - so a schema added by name shows its views as well as its tables.
-		let libraryViews = await this.extension.memoryCache.getViews({key: key, configId: configId});
-		let fetchedViews = fetchSchemaNames.length > 0
-			? await this.extension.memoryCache.getViewsForSchemas({key: key, configId: configId}, fetchSchemaNames)
-			: [];
-
-		let groupedViews = ArrayUtils.toMapOfArrays([...libraryViews, ...fetchedViews], view => view.schema.toUpperCase(), view => view);
-
-		// Functions and procedures too, the same two sources again, both filtered out of the one routine
-		// list - which is also what function and CALL completion read, so this primes those as well.
-		let libraryRoutines = await this.extension.memoryCache.getRoutines({key: key, configId: configId});
-		let fetchedRoutines = fetchSchemaNames.length > 0
-			? await this.extension.memoryCache.getRoutinesForSchemas({key: key, configId: configId}, fetchSchemaNames)
-			: [];
-
-		let allRoutines = [...libraryRoutines, ...fetchedRoutines];
+		// Functions and procedures too, both filtered out of the one routine list - which is also what
+		// function and CALL completion read, so this primes those as well.
+		let allRoutines = await this.extension.memoryCache.getRoutinesForSchemas({key: key, configId: configId}, treeSchemaNames);
 		let groupRoutines = (routines: SchemasSystemRoutine[]) => ArrayUtils.toMapOfArrays(routines, routine => routine.schema.toUpperCase(), routine => <SchemasSystemRoutine>{...routine});
 		let groupedFunctions = groupRoutines(allRoutines.filter(MemoryCache.isListedFunction));
 		let groupedProcedures = groupRoutines(allRoutines.filter(routine => routine.routineType === 'PROCEDURE'));
