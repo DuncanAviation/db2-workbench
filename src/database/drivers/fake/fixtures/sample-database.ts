@@ -351,6 +351,34 @@ export const SAMPLE_DATABASE = defineFakeDatabase({
 					returns: { dataType: 'DATE', length: 4 }
 				}
 			]
+		},
+		{
+			// QCMDEXC with both of its real overloads, so a user's CALL of it takes the overloaded-call path
+			// it takes live (see DbConnections.runCall). What a command does to a job's library list is
+			// FakeLibraryList's business. Off the library list, so the eager lists stay SALES-only.
+			name: 'QSYS2',
+			description: 'SQL catalog',
+			type: 'System',
+			onLibraryList: false,
+			procedures: [
+				{
+					name: 'QCMDEXC',
+					specificName: 'QCMDEXC',
+					body: 'EXTERNAL',
+					language: 'C',
+					parameters: [
+						{ name: 'COMMAND', dataType: 'CLOB', length: 32702 },
+						{ name: 'COMMAND_LENGTH', dataType: 'DECIMAL', precision: 15, scale: 5 }
+					]
+				},
+				{
+					name: 'QCMDEXC',
+					specificName: 'QCMDEXC1',
+					body: 'EXTERNAL',
+					language: 'C',
+					parameters: [{ name: 'COMMAND', dataType: 'CLOB', length: 32702 }]
+				}
+			]
 		}
 	]
 });

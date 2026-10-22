@@ -39,6 +39,27 @@ export class CatalogQueries {
 		});
 	}
 
+	/** Which of these names are libraries on the system. Every library is a schema to SYSSCHEMAS; the
+	 * OBJECT_STATISTICS('QSYS', '*LIB') form lists none of them on a real system, with no error. Used to
+	 * tell a library that exists from one that doesn't before acting on the name - a trigger dispatcher's
+	 * routing row, a library added in the live Edit Library List dialog. */
+	async listExistingLibraries(options: CatalogQueries.ListSchemasOptions & {progressMessage?: string}, libraries: string[]): Promise<string[]> {
+		if(libraries.length === 0) {
+			return [];
+		}
+
+		let rows = await runCatalogLookup(this.extension, {
+			key: options.key,
+			configId: options.configId,
+			sql: `select sys_name from qsys2.sysschemas ` +
+				`where sys_name in (${libraries.map(() => '?').join(', ')})`,
+			parameters: libraries,
+			progressMessage: options.progressMessage
+		});
+
+		return rows.map(row => StringUtils.trim(<string>row['SYS_NAME'], {toUndefined: true})).filter(name => name != null);
+	}
+
 	async listTables(options: CatalogQueries.ListTablesOptions): Promise<SystemTable[]> {
 		// Materialized query tables ('M') are listed with the tables: an MQT is a physical file with columns,
 		// keys, indexes and rows like any table, so every per-table tab and lookup serves it unchanged. TYPE

@@ -171,23 +171,9 @@ export class TriggerDispatchQueries {
 		return programs;
 	}
 
-	/** Which of these names are libraries on the system. Every library is a schema to SYSSCHEMAS; the
-	 * OBJECT_STATISTICS('QSYS', '*LIB') form lists none of them on a real system, with no error. */
+	/** Which of these names are libraries on the system - see CatalogQueries.listExistingLibraries. */
 	async listExistingLibraries(options: DbConnections.CommonListOptions, libraries: string[]): Promise<string[]> {
-		if(libraries.length === 0) {
-			return [];
-		}
-
-		let rows = await runCatalogLookup(this.extension, {
-			key: options.key,
-			configId: options.configId,
-			sql: `select sys_name from qsys2.sysschemas ` +
-				`where sys_name in (${libraries.map(() => '?').join(', ')})`,
-			parameters: libraries,
-			progressMessage: 'Finding the trigger\'s handler program...'
-		});
-
-		return rows.map(row => StringUtils.trim(<string>row['SYS_NAME'], {toUndefined: true})).filter(name => name != null);
+		return this.extension.catalogQueries.listExistingLibraries({...options, progressMessage: 'Finding the trigger\'s handler program...'}, libraries);
 	}
 
 	/** A service program's exported procedures - one of them is what the dispatcher calls. */

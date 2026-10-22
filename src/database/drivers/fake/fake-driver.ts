@@ -7,6 +7,7 @@ import { DbColumnDefinition, DbCursor, DbDriver, DbDriverConnection, DbResult } 
 import { CatalogResponder } from './catalog-responder.js';
 import { FakeDatabase, findTable } from './fake-database.js';
 import { FakeDml } from './fake-dml.js';
+import { FakeLibraryList } from './fake-library-list.js';
 
 /**
  * A DbDriver that serves canned data, so the extension can be exercised end to end - commands, the
@@ -16,11 +17,13 @@ import { FakeDml } from './fake-dml.js';
  * Deliberately free of `vscode` and `odbc` imports, so it can be unit tested in the mocha tier as
  * well as driven from an extension-host integration test.
  *
- * A statement is resolved in four steps:
+ * A statement is resolved in five steps:
  * 1. the response list, for a test that wants to pin exact rows (or inject an error, or a delay);
- * 2. CatalogResponder, which answers the QSYS2 catalog queries out of the declared FakeDatabase;
- * 3. an INSERT/UPDATE/DELETE, applied to the declared rows by FakeDml;
- * 4. a plain SELECT against a table the fixture declares, which returns that table's rows.
+ * 2. the connection's own FakeLibraryList, which answers LIBRARY_LIST_INFO and applies QCMDEXC library
+ *    commands - per connection, since the main and worker jobs each have a library list of their own;
+ * 3. CatalogResponder, which answers the QSYS2 catalog queries out of the declared FakeDatabase;
+ * 4. an INSERT/UPDATE/DELETE, applied to the declared rows by FakeDml;
+ * 5. a plain SELECT against a table the fixture declares, which returns that table's rows.
  *
  * Anything else **throws**. A fake that quietly returned no rows for a statement nobody taught it
  * would let a test pass while proving nothing, which is the one failure mode worth designing hard
@@ -58,7 +61,7 @@ export class FakeDriver implements DbDriver {
 
 	/** Every connection attempt succeeds - a fake driver has no credentials to be wrong about. */
 	async connect(): Promise<DbDriverConnection> {
-		return new FakeDriverConnection(this);
+		return new FakeDriverConnection(this, this.declared ? new FakeLibraryList(this.declared) : undefined);
 	}
 
 	/** This driver's own copy of the declared database - including whatever a write has changed. */
@@ -75,7 +78,7 @@ export class FakeDriver implements DbDriver {
 	 * first. Both of those exist so a test can exercise the paths that only a slow or failing
 	 * statement reaches - the progress/serialization behavior, and the History tab's error rendering.
 	 */
-	async resolve(sql: string, parameters?: Array<Parameter>): Promise<Record<string, unknown>[]> {
+	async resolve(sql: string, parameters?: Array<Parameter>, libraryList?: FakeLibraryList): Promise<Record<string, unknown>[]> {
 		this.options.onStatement?.(sql, parameters);
 
 		let response = this.findResponse(sql, parameters);
@@ -90,6 +93,12 @@ export class FakeDriver implements DbDriver {
 			}
 
 			return <Record<string, unknown>[]>ArrayUtils.toArray(response.rows);
+		}
+
+		let jobRows = libraryList?.respond(sql, parameters);
+
+		if(jobRows !== undefined) {
+			return jobRows;
 		}
 
 		// Tested against undefined, not emptiness: "this catalog knows the table and it has no rows"
@@ -243,11 +252,11 @@ export class FakeDriver implements DbDriver {
 }
 
 class FakeDriverConnection implements DbDriverConnection {
-	constructor(private driver: FakeDriver) { }
+	constructor(private driver: FakeDriver, private libraryList?: FakeLibraryList) { }
 
 	async query(options: DbDriver.QueryOptions): Promise<Nullable<DbResult>> {
 		FakeDriverConnection.checkMarkerCount(options);
-		return FakeDriver.toResult(await this.driver.resolve(options.sql, options.parameters));
+		return FakeDriver.toResult(await this.driver.resolve(options.sql, options.parameters, this.libraryList));
 	}
 
 	/**
@@ -275,7 +284,7 @@ class FakeDriverConnection implements DbDriverConnection {
 	 */
 	async callProcedure(options: DbDriver.CallProcedureOptions): Promise<Nullable<DbResult>> {
 		let call = `call ${StringUtils.default(options.schema, () => '')}.${StringUtils.default(options.name, () => '')}`;
-		let rows = await this.driver.resolve(call, options.parameters);
+		let rows = await this.driver.resolve(call, options.parameters, this.libraryList);
 
 		// Checked after resolve() so a refused call is still recorded - node-odbc does reach the server first.
 		this.checkParameterCount(options);
@@ -307,7 +316,7 @@ class FakeDriverConnection implements DbDriverConnection {
 
 	async openCursor(options: DbDriver.CursorOptions): Promise<DbCursor> {
 		FakeDriverConnection.checkMarkerCount(options);
-		let rows = await this.driver.resolve(options.sql, options.parameters);
+		let rows = await this.driver.resolve(options.sql, options.parameters, this.libraryList);
 		return new FakeCursor(rows, options.fetchSize ?? this.driver.fetchSize);
 	}
 

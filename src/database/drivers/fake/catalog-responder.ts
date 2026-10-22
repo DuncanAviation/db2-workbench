@@ -3,6 +3,7 @@ import { ArrayUtils } from '../../../utils/array-utils.js';
 import { Nullable } from '../../../utils/nullable.js';
 import { StringUtils } from '../../../utils/string-utils.js';
 import { FakeDatabase, FakeFunction, FakeProcedure, FakeProcedureParameter, FakeSchema, FakeTable, FakeTrigger, FakeView } from './fake-database.js';
+import { FakeLibraryList } from './fake-library-list.js';
 
 /**
  * Answers the QSYS2 catalog queries the extension runs, out of a declared FakeDatabase.
@@ -50,7 +51,7 @@ export class CatalogResponder {
 			return this.buildLibraryList();
 		}
 
-		// TriggerDispatchQueries.listExistingLibraries asks which of its bound names are libraries.
+		// CatalogQueries.listExistingLibraries asks which of its bound names are libraries.
 		if(normalized.includes('qsys2.sysschemas') && normalized.includes('where sys_name in')) {
 			return this.buildSchemas().filter(schema => values.some(value => StringUtils.equalsIgnoreCase(value, <string>schema.SYS_NAME)));
 		}
@@ -164,15 +165,10 @@ export class CatalogResponder {
 		}];
 	}
 
+	// A connection answers LIBRARY_LIST_INFO from its own job's list before this is asked (see
+	// FakeDriver.resolve); this is the fixture's starting list, for a responder used on its own.
 	private buildLibraryList(): Record<string, unknown>[] {
-		return this.database.schemas
-			.filter(schema => schema.onLibraryList)
-			.map((schema, index) => ({
-				ORDINAL_POSITION: index + 1,
-				SYSTEM_SCHEMA_NAME: schema.name,
-				TYPE: schema.type === 'System' ? 'SYSTEM' : 'USER',
-				TEXT_DESCRIPTION: schema.description
-			}));
+		return new FakeLibraryList(this.database).rows();
 	}
 
 	private buildSchemas(): Record<string, unknown>[] {

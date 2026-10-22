@@ -43,6 +43,10 @@ export namespace DbConnectionEvent {
 		ERROR = 'error',
 		FETCHING = 'fetching',
 		FETCHED = 'fetched',
+		/** The session's library list changed - through DbConnections.setLibraryList, or a library command
+		 * the user ran. Carries the new connectionInfo. Deliberately not CONNECTED, whose listeners treat it
+		 * as a step in the connection's lifecycle (resetting rows, adding a connection history entry). */
+		LIBRARY_LIST_CHANGED = 'libraryListChanged',
 		RESULT = 'result',
 		READY = 'ready'
 	}

@@ -66,7 +66,7 @@ describe('CatalogResponder.respond', () => {
 
 	it('lists every declared schema for the schema browser, library list or not', () => {
 		let rows = <Record<string, unknown>[]>responder.respond('select sys_name, label from qsys2.sysschemas order by name');
-		expect(rows.map(row => row['SYS_NAME'])).to.deep.equal(['SALES', 'ARCHIVE']);
+		expect(rows.map(row => row['SYS_NAME'])).to.deep.equal(['SALES', 'ARCHIVE', 'QSYS2']);
 	});
 
 	it('returns the tables of every named schema', () => {
