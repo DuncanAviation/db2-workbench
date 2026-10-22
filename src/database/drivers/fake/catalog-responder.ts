@@ -3,6 +3,7 @@ import { ArrayUtils } from '../../../utils/array-utils.js';
 import { Nullable } from '../../../utils/nullable.js';
 import { StringUtils } from '../../../utils/string-utils.js';
 import { FakeDatabase, FakeFunction, FakeProcedure, FakeProcedureParameter, FakeSchema, FakeTable, FakeTrigger, FakeView } from './fake-database.js';
+import { FakeLibraryList } from './fake-library-list.js';
 
 /**
  * Answers the QSYS2 catalog queries the extension runs, out of a declared FakeDatabase.
@@ -41,16 +42,16 @@ export class CatalogResponder {
 			return this.buildJobDetails();
 		}
 
-		// Before the library list and SYSTABLES checks: the eager view list joins both.
+		// Before the SYSTABLES check: the view list joins SYSTABLES for each view's description.
 		if(normalized.includes('qsys2.sysviews')) {
 			return this.buildViews(normalized, values);
 		}
 
-		if(normalized.includes('qsys2.library_list_info') && !normalized.includes('qsys2.systables') && !normalized.includes('qsys2.sysroutines')) {
+		if(normalized.includes('qsys2.library_list_info')) {
 			return this.buildLibraryList();
 		}
 
-		// TriggerDispatchQueries.listExistingLibraries asks which of its bound names are libraries.
+		// CatalogQueries.listExistingLibraries asks which of its bound names are libraries.
 		if(normalized.includes('qsys2.sysschemas') && normalized.includes('where sys_name in')) {
 			return this.buildSchemas().filter(schema => values.some(value => StringUtils.equalsIgnoreCase(value, <string>schema.SYS_NAME)));
 		}
@@ -164,15 +165,10 @@ export class CatalogResponder {
 		}];
 	}
 
+	// A connection answers LIBRARY_LIST_INFO from its own job's list before this is asked (see
+	// FakeDriver.resolve); this is the fixture's starting list, for a responder used on its own.
 	private buildLibraryList(): Record<string, unknown>[] {
-		return this.database.schemas
-			.filter(schema => schema.onLibraryList)
-			.map((schema, index) => ({
-				ORDINAL_POSITION: index + 1,
-				SYSTEM_SCHEMA_NAME: schema.name,
-				TYPE: schema.type === 'System' ? 'SYSTEM' : 'USER',
-				TEXT_DESCRIPTION: schema.description
-			}));
+		return new FakeLibraryList(this.database).rows();
 	}
 
 	private buildSchemas(): Record<string, unknown>[] {
@@ -184,10 +180,9 @@ export class CatalogResponder {
 	}
 
 	/**
-	 * CatalogQueries.listTables has two shapes: an eager one joined to LIBRARY_LIST_INFO (every table
-	 * on the library list) and a targeted one filtered by `sys_dname in (?, ...)`. The parameters are
-	 * schema names in the second case, so they're matched by name rather than through readTargets.
-	 * Both list materialized query tables along with the tables. CatalogQueries.getMqtDefinition selects
+	 * CatalogQueries.listTables filters by `sys_dname in (?, ...)`, its parameters schema names, so
+	 * they're matched by name rather than through readTargets. It lists materialized query tables along
+	 * with the tables. CatalogQueries.getMqtDefinition selects
 	 * MQTDEF alone for one MQT, bound [schema, table].
 	 */
 	private buildTables(normalized: string, values: string[]): Record<string, unknown>[] {
@@ -197,11 +192,7 @@ export class CatalogResponder {
 			return table?.mqtDefinition != null ? [{ MQTDEF: table.mqtDefinition }] : [];
 		}
 
-		let schemas = normalized.includes('library_list_info')
-			? this.database.schemas.filter(schema => schema.onLibraryList)
-			: this.database.schemas.filter(schema => values.some(value => StringUtils.equalsIgnoreCase(value, schema.name)));
-
-		return schemas.flatMap(schema => schema.tables.map(table => CatalogResponder.buildTableRow(schema, table)));
+		return this.findSchemas(values).flatMap(schema => schema.tables.map(table => CatalogResponder.buildTableRow(schema, table)));
 	}
 
 	// The MQT columns are null for anything else, as SYSTABLES' are.
@@ -242,8 +233,7 @@ export class CatalogResponder {
 
 	/**
 	 * CatalogQueries has two SYSVIEWS statements. getViewDefinition selects TEXT alone for one view,
-	 * bound [schema, view]. listViews has the same two shapes listTables does - joined to LIBRARY_LIST_INFO
-	 * or filtered by `sys_vdname in (?, ...)`.
+	 * bound [schema, view]. listViews filters by `sys_vdname in (?, ...)`, as listTables does.
 	 */
 	private buildViews(normalized: string, values: string[]): Record<string, unknown>[] {
 		if(normalized.startsWith('select text from')) {
@@ -252,11 +242,7 @@ export class CatalogResponder {
 			return view ? [{ TEXT: view.definition }] : [];
 		}
 
-		let schemas = normalized.includes('library_list_info')
-			? this.database.schemas.filter(schema => schema.onLibraryList)
-			: this.database.schemas.filter(schema => values.some(value => StringUtils.equalsIgnoreCase(value, schema.name)));
-
-		return schemas.flatMap(schema => schema.views.map(view => CatalogResponder.buildViewRow(schema, view)));
+		return this.findSchemas(values).flatMap(schema => schema.views.map(view => CatalogResponder.buildViewRow(schema, view)));
 	}
 
 	private static buildViewRow(schema: FakeSchema, view: FakeView): Record<string, unknown> {
@@ -613,8 +599,8 @@ export class CatalogResponder {
 	}
 
 	/**
-	 * CatalogQueries.listRoutines has the two shapes listViews does - joined to LIBRARY_LIST_INFO or
-	 * filtered by `specific_schema in (?, ...)` - and lists procedures and functions together.
+	 * CatalogQueries.listRoutines filters by `specific_schema in (?, ...)`, as listViews does, and lists
+	 * procedures and functions together.
 	 * RoutineQueries.getRoutineDetail reads one routine's row with the first chunk of its body, bound
 	 * [schema, specific name], then any further chunks, bound [start, schema, specific name].
 	 *
@@ -647,11 +633,12 @@ export class CatalogResponder {
 				: [{ ...CatalogResponder.buildRoutineRow(schema, routine, true), DEFINITION_LENGTH: definition.length === 0 ? null : definition.length, DEFINITION_CHUNK: text }];
 		}
 
-		let schemas = normalized.includes('library_list_info')
-			? this.database.schemas.filter(schema => schema.onLibraryList)
-			: this.database.schemas.filter(schema => values.some(value => StringUtils.equalsIgnoreCase(value, schema.name)));
+		return this.findSchemas(values).flatMap(schema => CatalogResponder.routinesOf(schema).map(routine => CatalogResponder.buildRoutineRow(schema, routine, false)));
+	}
 
-		return schemas.flatMap(schema => CatalogResponder.routinesOf(schema).map(routine => CatalogResponder.buildRoutineRow(schema, routine, false)));
+	// The schemas a `schema in (?, ...)` list names, in the fixture's own order.
+	private findSchemas(names: string[]): FakeSchema[] {
+		return this.database.schemas.filter(schema => names.some(name => StringUtils.equalsIgnoreCase(name, schema.name)));
 	}
 
 	private static routinesOf(schema: FakeSchema): (FakeProcedure | FakeFunction)[] {

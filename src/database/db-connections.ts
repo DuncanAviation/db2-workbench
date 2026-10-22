@@ -15,7 +15,9 @@ import { SystemProcedureParam } from '../models/system-procedure-param.js';
 import { SystemRoutine } from '../models/system-routine.js';
 import { AlertUtils } from '../utils/alert-utils.js';
 import { ArrayUtils } from '../utils/array-utils.js';
+import { DbErrorUtils } from '../utils/db-error-utils.js';
 import { DuplicateColumnChecker } from '../utils/duplicate-column-checker.js';
+import { LibraryListUtils } from '../utils/library-list-utils.js';
 import { Nullable } from '../utils/nullable.js';
 import { ObjectComparator } from '../utils/object-comparator.js';
 import { ProcedureUtils } from '../utils/procedure-utils.js';
@@ -51,6 +53,11 @@ export class DbConnections implements vscode.Disposable {
 	// not here at all, so first access still opens lazily, as it always has.
 	private _closedKeys: Nullable<Set<string>>;
 
+	// Sessions whose library list is being changed right now (setLibraryList, or bringing the worker in
+	// line after a user-run library command). A second change while the first is between its main and
+	// worker statements could leave the two jobs disagreeing, so it is refused rather than queued.
+	private _libraryListChanges: Nullable<Set<string>>;
+
 	constructor(private extension: Extension) {
 		extension.disposableManager.add(this, vscode.workspace.onDidChangeConfiguration(event => {
 			if(event.affectsConfiguration(`${Extension.ID}.connections`)) {
@@ -69,6 +76,10 @@ export class DbConnections implements vscode.Disposable {
 
 	private get closedKeys(): Set<string> {
 		return this._closedKeys ??= new Set();
+	}
+
+	private get libraryListChanges(): Set<string> {
+		return this._libraryListChanges ??= new Set();
 	}
 
 	/**
@@ -331,6 +342,14 @@ export class DbConnections implements vscode.Disposable {
 				: undefined;
 
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.RESULT, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults, duration: Date.now() - startTime, result: result, isCursorOpen: wrapper.connection.isCursorOpen, historyParameters: options.historyParameters, duplicateColumns: duplicateColumns, procedureOutParameters: procedureOutParameters, isInternal: options.isInternal });
+
+			// Hooked here, on the statement's RESULT, rather than on the CALL path: a QCMDEXC CALL runs as
+			// an overloaded call and `values qsys2.qcmdexc(...)` as a cursor, and both have to be caught.
+			let callParameters = parseResults.statementType === StatementParser.StatementType.SP ? (<SpParser.SpParseResults>parseResults).parameters : undefined;
+
+			if(!options.isInternal && LibraryListUtils.isLibraryListCommand(parseResults.originalSql, options.parameters ?? callParameters)) {
+				await this.syncLibraryListAfterUserCommand(options, wrapper);
+			}
 		} catch(error: any) {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.ERROR, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults, duration: Date.now() - startTime, error: error, historyParameters: options.historyParameters, isInternal: options.isInternal });
 
@@ -650,7 +669,9 @@ export class DbConnections implements vscode.Disposable {
 	// Public so the per-domain query classes under src/database/queries/ (TableQueries, IndexQueries,
 	// etc.) can run their own hardcoded catalog SQL, and simple worker-connection mutations (e.g.
 	// IndexQueries.deleteIndex), over the worker connection without needing access to
-	// ConnectionWrapper/getConnectionWrapper - both stay private to this class.
+	// ConnectionWrapper/getConnectionWrapper - both stay private to this class. `useWorkerConnection: false`
+	// runs it on the main connection instead, for the one statement that has to reach both jobs (the
+	// library list change - see setLibraryList); its RESULT is still internal, so it leaves the user's rows alone.
 	async internalQuery(options: DbConnections.QueryOptions): Promise<Nullable<DbResult>> {
 		let wrapper = await this.getConnectionWrapper(options.key, options.configId);
 
@@ -676,7 +697,7 @@ export class DbConnections implements vscode.Disposable {
 				cancellable: false
 			}, async (progress) => {
 				progress.report({ message: options.progressMessage ?? 'Executing worker query...' });
-				return wrapper.connection.query({ ...options, useWorkerConnection: true });
+				return wrapper.connection.query({ ...options, useWorkerConnection: options.useWorkerConnection ?? true });
 			});
 
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.RESULT, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults, duration: Date.now() - startTime, result: result, isCursorOpen: wrapper.connection.isCursorOpen, historyParameters: historyParameters, isInternal: true });
@@ -685,6 +706,137 @@ export class DbConnections implements vscode.Disposable {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.ERROR, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults, duration: Date.now() - startTime, error: error, historyParameters: historyParameters, isInternal: true });
 			options.onError?.(error);
 		}
+	}
+
+	/**
+	 * Sets the user portion of this session's library list, on its main job and its worker job both, and
+	 * only for as long as the connection lasts: a reconnect starts again from the user profile's job
+	 * description. Every catalog lookup and bare-name resolution reads the list from ConnectionInfo per
+	 * call, so they follow the new list straight away; the cache needs nothing (see MemoryCache.getTables).
+	 *
+	 * The two jobs must never disagree - the worker runs every internal lookup, including ones that resolve
+	 * unqualified names through *LIBL - so the main job changes first, and a failure on the worker puts the
+	 * main job back before the error is thrown. A failure on the main job never reaches the worker. QTEMP
+	 * stays where it is whatever `userLibraries` says (see LibraryListUtils.keepQtemp).
+	 *
+	 * Throws, rather than reporting through an event, because the caller (the live Edit Schema List dialog)
+	 * keeps the user's edits open and shows the error there. The statements themselves still reach the
+	 * History tab as internal ones.
+	 */
+	async setLibraryList(options: DbConnections.CommonListOptions, userLibraries: string[]): Promise<ConnectionInfo> {
+		let wrapper = this.connectionWrappers.get(options.key);
+
+		if(wrapper == null) {
+			throw new Error('This session has no open connection');
+		}
+
+		if(wrapper.connection.state !== DbConnection.State.OPEN || this.libraryListChanges.has(options.key)) {
+			throw new Error('The library list can\'t be changed while a statement is running');
+		}
+
+		this.libraryListChanges.add(options.key);
+
+		try {
+			let previous = LibraryListUtils.userLibraries(wrapper.info.schemas);
+			let command = LibraryListUtils.buildChangeLibraryListCommand(LibraryListUtils.keepQtemp(previous, userLibraries));
+
+			await this.runLibraryListCommand(options, command, false);
+
+			try {
+				await this.runLibraryListCommand(options, command, true);
+			} catch(error) {
+				try {
+					await this.runLibraryListCommand(options, LibraryListUtils.buildChangeLibraryListCommand(previous), false);
+				} catch {
+					// The main job kept the new list and the worker the old one. Nothing more can be done
+					// here, but the session's ConnectionInfo at least reports the main job's real list.
+					await this.refreshLibraryList(options.key, wrapper, await wrapper.connection.getSchemaList());
+				}
+
+				throw error;
+			}
+
+			return this.refreshLibraryList(options.key, wrapper, await wrapper.connection.getSchemaList());
+		} finally {
+			this.libraryListChanges.delete(options.key);
+		}
+	}
+
+	/**
+	 * Brings the worker job in line after a user ran a library list command themselves (a QCMDEXC CALL or
+	 * `values qsys2.qcmdexc(...)` in a SQL tab), which changed only the main job. The main job's list is read
+	 * back rather than worked out from the command - the command may have failed (the scalar function
+	 * returns -1 and changes nothing), and the list is the one thing that says what it actually did. Only
+	 * the user portion is copied: a CHGCURLIB or CHGSYSLIBL changes parts of the main job this doesn't
+	 * mirror yet, though the session still reports the main job's full list.
+	 *
+	 * A failure here is reported on its own rather than as the user statement's error - that statement ran.
+	 */
+	private async syncLibraryListAfterUserCommand(options: DbConnections.CommonListOptions, wrapper: ConnectionWrapper): Promise<void> {
+		if(this.libraryListChanges.has(options.key)) {
+			return;
+		}
+
+		this.libraryListChanges.add(options.key);
+
+		try {
+			let schemas = await wrapper.connection.getSchemaList();
+
+			if(LibraryListUtils.isSameList(wrapper.info.schemas, schemas)) {
+				return;
+			}
+
+			let userLibraries = LibraryListUtils.userLibraries(schemas);
+			let workerError: unknown;
+
+			try {
+				await this.runLibraryListCommand(options, LibraryListUtils.buildChangeLibraryListCommand(userLibraries), true);
+			} catch(error) {
+				workerError = error;
+			}
+
+			// The main job's list did change, so the session reports it whether or not the worker followed.
+			await this.refreshLibraryList(options.key, wrapper, schemas);
+
+			if(workerError != null) {
+				AlertUtils.onError(`The library list changed, but the worker connection's library list could not be updated to match: ${DbErrorUtils.toText(DbErrorUtils.serialize(workerError))}`);
+			} else {
+				AlertUtils.onInfo(`Library list updated: ${userLibraries.join(', ')}`);
+			}
+		} catch(error) {
+			AlertUtils.onError(error);
+		} finally {
+			this.libraryListChanges.delete(options.key);
+		}
+	}
+
+	// A plain CALL with the command bound as a value - never callProcedure(): QSYS2 has two procedures named
+	// QCMDEXC, and node-odbc's callProcedure() counts the parameters of both, so every call through it fails
+	// (see runCall). internalQuery hands this to DbConnection.query, which runs it as a statement.
+	private async runLibraryListCommand(options: DbConnections.CommonListOptions, command: string, useWorkerConnection: boolean): Promise<void> {
+		let failure: unknown;
+
+		let result = await this.internalQuery({
+			key: options.key,
+			configId: options.configId,
+			sql: 'CALL QSYS2.QCMDEXC(?)',
+			parameters: [command],
+			useWorkerConnection: useWorkerConnection,
+			progressMessage: 'Changing the library list...',
+			onError: error => failure = error
+		});
+
+		if(result == null) {
+			throw failure ?? new Error('The library list could not be changed: the session has no open connection');
+		}
+	}
+
+	// A new ConnectionInfo object rather than the old one changed in place, so whatever still holds the
+	// previous one (an event already fired, a rendered session) keeps describing the list it was given.
+	private async refreshLibraryList(key: string, wrapper: ConnectionWrapper, schemas: ConnectionSchema[]): Promise<ConnectionInfo> {
+		wrapper.info = { ...wrapper.info, schemas: schemas };
+		this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED, key: key, configuration: wrapper.configuration, connectionInfo: wrapper.info });
+		return wrapper.info;
 	}
 
 	forgetClose(options: DbConnections.CloseOptions) {

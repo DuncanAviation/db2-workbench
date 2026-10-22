@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { buildTablePredicate, chunkTableTargets, tableTargetKey, toTableTargets } from './table-predicates.js';
+import { buildTablePredicate, chunkSchemaNames, chunkTableTargets, MAX_SCHEMAS_PER_QUERY, tableTargetKey, toTableTargets } from './table-predicates.js';
 
 const COLUMNS = {schema: 'dbname', table: 'tbname'};
 
@@ -148,5 +148,30 @@ describe('chunkTableTargets', () => {
 
 	it('never loops forever on a nonsense size', () => {
 		expect(chunkTableTargets(targets(3), 0)).to.have.lengthOf(3);
+	});
+});
+
+describe('chunkSchemaNames', () => {
+	function schemas(count: number) {
+		return Array.from({length: count}, (ignored, index) => `LIB${index}`);
+	}
+
+	it('returns no chunks for no schemas, so no statement runs', () => {
+		expect(chunkSchemaNames([])).to.deep.equal([]);
+	});
+
+	it('splits a long library list, keeping its order', () => {
+		let chunks = chunkSchemaNames(schemas(120), 50);
+
+		expect(chunks.map(chunk => chunk.length)).to.deep.equal([50, 50, 20]);
+		expect(chunks.flat()).to.deep.equal(schemas(120));
+	});
+
+	it('upper-cases, trims and de-duplicates names, and drops blanks', () => {
+		expect(chunkSchemaNames(['sales', ' SALES ', '', '  ', 'archive'])).to.deep.equal([['SALES', 'ARCHIVE']]);
+	});
+
+	it('defaults to a bounded chunk size', () => {
+		expect(chunkSchemaNames(schemas(MAX_SCHEMAS_PER_QUERY + 1))).to.have.lengthOf(2);
 	});
 });

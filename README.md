@@ -37,7 +37,7 @@ Schemas, tables, columns, views and functions are suggested as you type, each co
 - Each open SQL file gets its own session, with its own results, connection and history. The results panel follows the active editor, or you can pick a session from the session list.
 - Results are paged. The grid fetches `cursorFetchSize` rows at a time and loads more as you scroll, so a large result set never has to be read in full.
 - Column headings can show the short (system) name, the long (SQL) name and the column description, in any combination (`db2-workbench.resultHeadingLabels`).
-- The **History** tab keeps recent statements and connection events for the session, and **Connection** shows the job behind it.
+- The **History** tab keeps recent statements and connection events for the session, and **Connection** shows the job behind it and its library list, which you can copy or edit. Editing reorders, adds or removes libraries on the session's connection only, until it disconnects. Library commands you run yourself, such as `CALL QSYS2.QCMDEXC('ADDLIBLE LIB(MYLIB)')`, are picked up too.
 - When the panel is too small, open the results in an editor tab or a separate window.
 
 ### Stored procedures and parameters

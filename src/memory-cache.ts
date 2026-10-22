@@ -23,6 +23,7 @@ import { SystemTable } from './models/system-table.js';
 import { SystemTrigger } from './models/system-trigger.js';
 import { SystemView } from './models/system-view.js';
 
+import { ArrayUtils } from './utils/array-utils.js';
 import { Nullable } from './utils/nullable.js';
 import { ProcedureUtils } from './utils/procedure-utils.js';
 import { StringUtils } from './utils/string-utils.js';
@@ -71,82 +72,19 @@ export class MemoryCache {
 		});
 	}
 
+	// Every table on the session's library list, in list order. Nothing here is cached as a whole list:
+	// the list differs between sessions on the same connection (and changes while one is open), so it is
+	// composed per call from the per-schema slots getTablesForSchemas keeps, which hold only what is in each
+	// schema and so can be shared by every session. A schema none of them has seen yet costs one batched
+	// query, the first time.
 	async getTables(options: CatalogQueries.ListTablesOptions): Promise<SystemTable[]> {
-		if(options.schema) {
-			return this.getTablesForSchema(options, options.schema);
-		}
-
-		let key = await this.getCacheKey(options, MemoryCache.Keys.SYSTEM_TABLES);
-
-		return this.load({
-			key: key,
-			load: async () => {
-				let tables = <SystemTable[]>await this.get(key);
-
-				if(tables == null) {
-					tables = await this.extension.catalogQueries.listTables({ ...options, schema: undefined });
-					this.set(key, tables);
-				}
-
-				return tables;
-			}
-		});
-	}
-
-	// Requesting tables for a single schema shouldn't have to pay for (or wait behind) the full
-	// cross-schema scan getTables() does when nothing is cached yet - that scan is only actually
-	// needed by callers that want every schema's tables (the schema tree, autocomplete's top-level
-	// table list). If that full scan has already completed by the time a schema-specific request
-	// comes in, slice it from memory for free instead of issuing a redundant query; otherwise run a
-	// cheap single-schema query instead of the expensive one.
-	private async getTablesForSchema(options: CatalogQueries.ListTablesOptions, schema: string): Promise<SystemTable[]> {
-		let key = await this.getSchemaTablesKey(options, schema);
-		let cached = <SystemTable[]>await this.get(key);
-
-		if(cached != null) {
-			return cached;
-		}
-
-		// The full cross-schema scan (getTables() with no schema) only ever covers schemas on the
-		// connection's current library list - it joins qsys2.library_list_info (see
-		// CatalogQueries.listTables). Slicing from it is only valid for a schema that's actually on
-		// that list; for one that isn't (e.g. manually added via the schemas tree's "Edit Schema List"
-		// feature, or resolved via a schema-qualified "Go to Definition"), the scan never looked at it
-		// at all, so slicing would wrongly resolve to "no tables" instead of actually querying.
-		let connectionInfo = await this.extension.connections.getConnectionInfo(options);
-		let onLibraryList = connectionInfo?.schemas.some(librarySchema => StringUtils.equalsIgnoreCase(librarySchema.name, schema)) ?? false;
-
-		if(onLibraryList) {
-			let allTablesKey = await this.getCacheKey(options, MemoryCache.Keys.SYSTEM_TABLES);
-			let allTables = <SystemTable[]>await this.get(allTablesKey);
-
-			// A plain get with no supplier: undefined until the full scan has run at least once.
-			if(allTables?.length) {
-				let schemaTables = allTables.filter(table => StringUtils.equalsIgnoreCase(table.schema, schema));
-				this.set(key, schemaTables);
-				return schemaTables;
-			}
-		}
-
-		return this.load({
-			key: key,
-			load: async () => {
-				let tables = <SystemTable[]>await this.get(key);
-
-				if(tables == null) {
-					tables = await this.extension.catalogQueries.listTables(options);
-					this.set(key, tables);
-				}
-
-				return tables;
-			}
-		});
+		return this.getTablesForSchemas(options, await this.getSchemaNames(options));
 	}
 
 	// Fetches tables for several schemas that aren't already cached individually, in one query - used
-	// by the schemas tree's "Edit Schema List" feature when the user adds multiple schemas that aren't
-	// on the connection's current library list, so adding N schemas at once costs one query, not N.
-	// Same "check each entity's own cache slot, batch only the misses" pattern as getIndexAdvice.
+	// for the library list (getTables) and the schemas tree's "Edit Schema List" additions alike, so asking
+	// about N schemas costs one query, not N. Same "check each entity's own cache slot, batch only the
+	// misses" pattern as getIndexAdvice.
 	async getTablesForSchemas(options: CatalogQueries.ListTablesOptions, schemas: string[]): Promise<SystemTable[]> {
 		return this.loadSchemaEntities<SystemTable>({
 			options: options,
@@ -156,8 +94,15 @@ export class MemoryCache {
 		});
 	}
 
-	private async getSchemaTablesKey(options: CatalogQueries.ListTablesOptions, schema: string): Promise<string> {
-		return this.getSchemaEntitiesKey(options, MemoryCache.Keys.SYSTEM_TABLES, schema);
+	// The schemas a list with no `schemas` covers: the request's own schema when it names one, otherwise the
+	// session's library list, in order, read from its ConnectionInfo - never from a cache slot.
+	private async getSchemaNames(options: CatalogQueries.SchemaListOptions): Promise<string[]> {
+		if(StringUtils.isNotBlank(options.schema)) {
+			return [<string>options.schema];
+		}
+
+		let connectionInfo = await this.extension.connections.getConnectionInfo({key: options.key, configId: options.configId});
+		return connectionInfo?.schemas.map(schema => schema.name) ?? [];
 	}
 
 	// Tables and views together - everything a query can select from - for the callers that only need a
@@ -181,33 +126,13 @@ export class MemoryCache {
 		return {schema: source.schema, name: source.name, description: source.description, kind: kind};
 	}
 
-	// Every view on the connection's library list - the eager counterpart of getTables(), cached the same
-	// way. Views aren't warmed up at connect time; the schema tree and getRelations() load them on first use.
+	// Every view on the session's library list - composed from per-schema slots the same way as getTables().
+	// Views aren't warmed up at connect time; the schema tree and getRelations() load them on first use.
 	async getViews(options: CatalogQueries.ListViewsOptions): Promise<SystemView[]> {
-		if(options.schema) {
-			return this.getViewsForSchemas(options, [options.schema]);
-		}
-
-		let key = await this.getCacheKey(options, MemoryCache.Keys.SYSTEM_VIEWS);
-
-		return this.load({
-			key: key,
-			load: async () => {
-				let views = <SystemView[]>await this.get(key);
-
-				if(views == null) {
-					views = await this.extension.catalogQueries.listViews({ ...options, schema: undefined });
-					this.set(key, views);
-				}
-
-				return views;
-			}
-		});
+		return this.getViewsForSchemas(options, await this.getSchemaNames(options));
 	}
 
-	// Same per-schema slots and batching as getTablesForSchemas. A single-schema request goes through here
-	// too rather than slicing the library-list scan: unlike tables, nothing calls it per schema often
-	// enough for that shortcut to pay for itself.
+	// Same per-schema slots and batching as getTablesForSchemas.
 	async getViewsForSchemas(options: CatalogQueries.ListViewsOptions, schemas: string[]): Promise<SystemView[]> {
 		return this.loadSchemaEntities<SystemView>({
 			options: options,
@@ -255,47 +180,49 @@ export class MemoryCache {
 	// Fetches the rows for several schemas that aren't already cached individually, in one query. Each
 	// schema keeps its own `<cacheKey>.<schema>` slot (the suffix form deleteSchemaCache matches), so a
 	// schema cached as "nothing in it" is a hit, and only the misses reach the query. Same "check each
-	// entity's own cache slot, batch only the misses" pattern as loadTableEntities.
+	// entity's own cache slot, batch only the misses" pattern as loadTableEntities. Rows come back grouped
+	// by schema in the order the schemas were asked for, which for a library list is the list's own order.
 	private async loadSchemaEntities<T extends {schema: string}>(options: MemoryCache.LoadSchemaEntitiesOptions<T>): Promise<T[]> {
 		if(options.schemas.length === 0) {
 			return [];
 		}
 
-		let results: T[] = [];
+		let bySchema = new Map<string, T[]>();
 		let missingSchemas: string[] = [];
 
 		for(let schema of options.schemas) {
 			let cached = <T[]>await this.get(await this.getSchemaEntitiesKey(options.options, options.cacheKey, schema));
 
 			if(cached != null) {
-				results.push(...cached);
+				bySchema.set(schema.toUpperCase(), cached);
 			} else {
 				missingSchemas.push(schema);
 			}
 		}
 
-		if(missingSchemas.length === 0) {
-			return results;
+		if(missingSchemas.length > 0) {
+			let key = await this.getCacheKey(options.options, `${options.cacheKey}.batch.${missingSchemas.map(schema => schema.toLowerCase()).sort().join(',')}`);
+
+			let fetched = await this.load({
+				key: key,
+				load: async () => {
+					let rows = await options.fetch(missingSchemas);
+
+					for(let schema of missingSchemas) {
+						let schemaRows = rows.filter(row => StringUtils.equalsIgnoreCase(row.schema, schema));
+						this.set(await this.getSchemaEntitiesKey(options.options, options.cacheKey, schema), schemaRows);
+					}
+
+					return rows;
+				}
+			});
+
+			for(let [schema, rows] of ArrayUtils.toMapOfArrays(fetched, row => row.schema.toUpperCase(), row => row)) {
+				bySchema.set(schema, rows);
+			}
 		}
 
-		let key = await this.getCacheKey(options.options, `${options.cacheKey}.batch.${missingSchemas.map(schema => schema.toLowerCase()).sort().join(',')}`);
-
-		let fetched = await this.load({
-			key: key,
-			load: async () => {
-				let rows = await options.fetch(missingSchemas);
-
-				for(let schema of missingSchemas) {
-					let schemaRows = rows.filter(row => StringUtils.equalsIgnoreCase(row.schema, schema));
-					this.set(await this.getSchemaEntitiesKey(options.options, options.cacheKey, schema), schemaRows);
-				}
-
-				return rows;
-			}
-		});
-
-		results.push(...fetched);
-		return results;
+		return [...new Set(options.schemas.map(schema => schema.toUpperCase()))].flatMap(schema => bySchema.get(schema) ?? []);
 	}
 
 	private async getSchemaEntitiesKey(options: DbConnections.CommonListOptions, cacheKey: MemoryCache.Keys, schema: string): Promise<string> {
@@ -385,28 +312,11 @@ export class MemoryCache {
 		await this.deleteTableEntitiesCache(options, options?.tables, MemoryCache.Keys.SYSTEM_TRIGGERS);
 	}
 
-	// Every routine - procedures and functions both - on the connection's library list, cached the same way
-	// as getViews() and loaded on first use (the schema tree, content assist, a CALL's schema resolution).
+	// Every routine - procedures and functions both - on the session's library list, composed from per-schema
+	// slots the same way as getTables() and loaded on first use (the schema tree, content assist, a CALL's
+	// schema resolution).
 	async getRoutines(options: CatalogQueries.ListRoutinesOptions): Promise<SystemRoutine[]> {
-		if(options.schema) {
-			return this.getRoutinesForSchemas(options, [options.schema]);
-		}
-
-		let key = await this.getCacheKey(options, MemoryCache.Keys.SYSTEM_ROUTINES);
-
-		return this.load({
-			key: key,
-			load: async () => {
-				let routines = <SystemRoutine[]>await this.get(key);
-
-				if(routines == null) {
-					routines = await this.extension.catalogQueries.listRoutines({ ...options, schema: undefined });
-					this.set(key, routines);
-				}
-
-				return routines;
-			}
-		});
+		return this.getRoutinesForSchemas(options, await this.getSchemaNames(options));
 	}
 
 	// Same per-schema slots and batching as getViewsForSchemas.
@@ -577,26 +487,17 @@ export class MemoryCache {
 		return SystemRoutineParam.parameters(params).map(param => ({...param, procedureName: procedure?.name ?? procedureName.toUpperCase()}));
 	}
 
-	// The library-list scan answers every schema on the list, which is where nearly every CALL's
-	// procedure lives - only a schema off the list costs a lookup of its own.
+	// Read from the schema's own routine slot - the same slot the library-list composition reads, so a
+	// schema on the list is already cached and one off it costs a lookup of its own.
 	private async findProcedures(options: DbConnections.CommonListOptions, schema: string, procedureName: string): Promise<SystemRoutine[]> {
-		let named = (procedures: SystemRoutine[]) => procedures.filter(candidate =>
-			StringUtils.equalsIgnoreCase(candidate.schema, schema) && StringUtils.equalsIgnoreCase(candidate.name, procedureName));
-		let matches = named(await this.getProcedures({key: options.key, configId: options.configId}));
-
-		if(matches.length === 0) {
-			matches = named(await this.getProcedures({key: options.key, configId: options.configId, schema: schema}));
-		}
-
-		return matches;
+		return (await this.getProcedures({key: options.key, configId: options.configId, schema: schema}))
+			.filter(candidate => StringUtils.equalsIgnoreCase(candidate.schema, schema) && StringUtils.equalsIgnoreCase(candidate.name, procedureName));
 	}
 
-	// Drops one schema's routines - its own slot and the library-list scan, which may hold the same rows -
-	// so the next lookup re-reads them. For a routine list found to be out of date (a procedure created
-	// or overloaded since it was cached); see DbConnections.execute.
+	// Drops one schema's routines so the next lookup re-reads them. For a routine list found to be out of
+	// date (a procedure created or overloaded since it was cached); see DbConnections.execute.
 	async deleteRoutinesCache(options: DbConnections.CommonListOptions, schema: string): Promise<void> {
 		this.cacheMap.delete(await this.getSchemaEntitiesKey(options, MemoryCache.Keys.SYSTEM_ROUTINES, schema));
-		this.cacheMap.delete(await this.getCacheKey(options, MemoryCache.Keys.SYSTEM_ROUTINES));
 	}
 
 	// Cached per table (like getColumns) rather than as one blob keyed by the whole request, since

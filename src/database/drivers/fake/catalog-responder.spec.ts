@@ -66,12 +66,12 @@ describe('CatalogResponder.respond', () => {
 
 	it('lists every declared schema for the schema browser, library list or not', () => {
 		let rows = <Record<string, unknown>[]>responder.respond('select sys_name, label from qsys2.sysschemas order by name');
-		expect(rows.map(row => row['SYS_NAME'])).to.deep.equal(['SALES', 'ARCHIVE']);
+		expect(rows.map(row => row['SYS_NAME'])).to.deep.equal(['SALES', 'ARCHIVE', 'QSYS2']);
 	});
 
-	it('returns only library-list tables when the table list is joined to the library list', () => {
-		let rows = <Record<string, unknown>[]>responder.respond('select sys_dname, sys_tname from qsys2.systables join qsys2.library_list_info on system_schema_name = sys_dname');
-		expect(rows.map(row => row['SYS_TNAME'])).to.deep.equal(['CUSTOMER', 'ORDERS', 'SHIPMENT', 'ORDNOTE', 'CUSTTOT']);
+	it('returns the tables of every named schema', () => {
+		let rows = <Record<string, unknown>[]>responder.respond('select sys_dname, sys_tname from qsys2.systables where sys_dname in (?, ?)', ['SALES', 'ARCHIVE']);
+		expect(rows.map(row => row['SYS_TNAME'])).to.deep.equal(['CUSTOMER', 'ORDERS', 'SHIPMENT', 'ORDNOTE', 'CUSTTOT', 'ORDERS2024']);
 	});
 
 	it('types a materialized query table M, and answers its definition on its own', () => {
@@ -90,11 +90,11 @@ describe('CatalogResponder.respond', () => {
 		expect(rows.map(row => row['SYS_TNAME'])).to.deep.equal(['ORDERS2024']);
 	});
 
-	// The eager view list joins both LIBRARY_LIST_INFO and SYSTABLES, so it has to be recognized as a view
-	// list before either of those checks claims it.
-	it('answers the library-list view list as views, not as the library list or a table list', () => {
-		let sql = 'select v.sys_vdname, v.sys_vname, t.label from qsys2.sysviews v left join qsys2.systables t on t.sys_dname = v.sys_vdname and t.sys_tname = v.sys_vname join qsys2.library_list_info on system_schema_name = v.sys_vdname';
-		let rows = <Record<string, unknown>[]>responder.respond(sql);
+	// The view list joins SYSTABLES for each view's description, so it has to be recognized as a view list
+	// before the table check claims it.
+	it('answers the view list as views, not as a table list', () => {
+		let sql = 'select v.sys_vdname, v.sys_vname, t.label from qsys2.sysviews v left join qsys2.systables t on t.sys_dname = v.sys_vdname and t.sys_tname = v.sys_vname where v.sys_vdname in (?)';
+		let rows = <Record<string, unknown>[]>responder.respond(sql, ['SALES']);
 		expect(rows.map(row => row['SYS_VNAME'])).to.deep.equal(['CUSTORD']);
 		expect(rows[0]['LABEL']).to.equal('Orders with customer names');
 	});
@@ -185,8 +185,8 @@ describe('CatalogResponder.respond', () => {
 	});
 
 	it('lists procedures and functions together, by routine name and specific name', () => {
-		let sql = 'select specific_schema, specific_name, routine_name, routine_type from qsys2.sysroutines join qsys2.library_list_info on system_schema_name = specific_schema';
-		let rows = <Record<string, unknown>[]>responder.respond(sql, []);
+		let sql = 'select specific_schema, specific_name, routine_name, routine_type from qsys2.sysroutines where specific_schema in (?)';
+		let rows = <Record<string, unknown>[]>responder.respond(sql, ['SALES']);
 		expect(rows.map(row => `${row['ROUTINE_TYPE']}:${row['ROUTINE_NAME']}:${row['SPECIFIC_NAME']}`)).to.deep.equal([
 			'PROCEDURE:NEXT_ORDER_NUMBER:NEXT_ORDER_NUMBER',
 			'PROCEDURE:ORDER_TOTAL:ORDER_TOTAL_RECALC',

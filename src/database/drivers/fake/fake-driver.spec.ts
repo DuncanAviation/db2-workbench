@@ -20,7 +20,7 @@ describe('FakeDriver', () => {
 	it('answers a catalog query out of the declared database', async () => {
 		let connection = await connect();
 		let result = await connection.query({ sql: 'select sys_name, label from qsys2.sysschemas order by name' });
-		expect(result?.map(row => (<Record<string, unknown>>row)['SYS_NAME'])).to.deep.equal(['SALES', 'ARCHIVE']);
+		expect(result?.map(row => (<Record<string, unknown>>row)['SYS_NAME'])).to.deep.equal(['SALES', 'ARCHIVE', 'QSYS2']);
 	});
 
 	// The single most important behavior here: a statement nobody taught the fake must fail loudly.
