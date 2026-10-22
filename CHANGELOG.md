@@ -16,6 +16,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 - **Copy column names from a header.** Right-clicking a column header in the results grid or the Data tab offers Copy Name, Copy Long Name and Copy Description.
 - **Copy names from a diagram.** Right-clicking a table's header on a diagram offers Copy Name for the table; right-clicking one of its columns offers the same Copy Name, Copy Long Name and Copy Description as a grid header.
 - **Duplicate Row.** In the Data tab's edit mode, a row's menu offers Duplicate Row, which adds a new row at the top of the grid with the same values. Identity and LOB columns are left out, as they are for Add Row.
+- **Copy an error.** Database errors have a Copy error button next to their message, which copies the message together with every line of the driver's error detail. It appears on failed statements in the results panel's History tab and the Data tab's Run SQL panel, on the schema browser tabs' load errors, and in the SQL import steps.
 
 ### Changed
 
@@ -28,6 +29,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 ### Fixed
 
 - An unqualified table name now resolves to the first library on the connection's library list that has it, the same one DB2 runs the statement against, for column completion and result column headings. Before, the alphabetically first library won, and with a default table schema set on the connection, a table outside that schema got no columns at all.
+- When a SQL import's statement failed, the Import Schema dialog showed only the summary message. It now shows the driver's full error detail too, like the rest of the extension.
 - Calling an overloaded procedure, one name with several parameter lists such as `QSYS2.QCMDEXC`, no longer fails with "The number of parameters the procedure expects and and the number of passed parameters is not equal". DB2 picks the overload from the number of arguments. Output parameter values of an overloaded procedure can't be shown, and a warning says so when it has any.
 
 ## [0.1.0] - 2026-10-12

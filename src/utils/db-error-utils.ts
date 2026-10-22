@@ -46,6 +46,21 @@ export class DbErrorUtils {
 			isSetupError: isSetupError === true ? true : undefined
 		};
 	}
+
+	/**
+	 * A serialized error as plain text, for a Copy error button: the message, then one line per part
+	 * of the driver's error chain in DbErrorTable's own Code/State/Message order, so a paste carries
+	 * everything the error display shows rather than only the (often truncated) summary message.
+	 */
+	static toText(error: DbErrorUtils.SerializedError): string {
+		let lines = [error.message];
+
+		for(let detail of error.driverErrors ?? []) {
+			lines.push(`Code ${detail.code}, State ${detail.state}: ${detail.message}`);
+		}
+
+		return lines.join('\n');
+	}
 }
 
 export namespace DbErrorUtils {

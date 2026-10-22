@@ -1271,6 +1271,31 @@ describe('schemas Data tab edit flow', () => {
 			expect(panelButton('Run').disabled).toBe(false);
 		});
 
+		it('Copy error on the failed statement copies its message and every driver error line', async () => {
+			let user = await openDataTab();
+			await rowAction(user, 'A100', 'Delete Row');
+			await rowAction(user, 'B200', 'Delete Row');
+			await run(user, '2 Deletes');
+
+			progress(0, 'success');
+			progress(1, 'error');
+			postFromHost<SchemasTreeInboundMessage>({
+				command: 'runDataEditStatementsResult',
+				executedCount: 1,
+				failed: true,
+				error: {
+					message: 'Error executing the sql statement',
+					driverErrors: [{ code: -532, state: '23504', message: 'SQL0532 Delete prevented by referential constraint' }]
+				}
+			});
+
+			expect(within(statementItem(0)).queryByRole('button', { name: 'Copy error' })).toBeNull();
+			await user.click(within(statementItem(1)).getByRole('button', { name: 'Copy error' }));
+
+			// openDataTab's userEvent.setup() installed user-event's own clipboard, which readText() reads back.
+			expect(await navigator.clipboard.readText()).toBe('Error executing the sql statement\nCode -532, State 23504: SQL0532 Delete prevented by referential constraint');
+		});
+
 		it('falls back to a generic message when a failure carries no error detail', async () => {
 			let user = await openDataTab();
 			await rowAction(user, 'A100', 'Delete Row');
