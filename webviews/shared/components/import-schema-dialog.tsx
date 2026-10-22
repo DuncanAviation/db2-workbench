@@ -7,6 +7,7 @@ import type { SqlImportSectionId } from '../../../src/models/sql-import-config';
 import type { SqlImportConnectionTarget, SqlImportMappings, SqlImportRunResult, SqlImportStatementInput } from '../../../src/webview-messages/schemas-messages';
 import type { DbErrorUtils } from '../../../src/utils/db-error-utils';
 import { SourceEditor } from './source-editor';
+import { SqlErrorDisplay } from './sql-error-display';
 import { findDuplicateMappedTargets, findUnmappedRequiredTargets, SqlImportMappingStep, SqlImportSaveOptions, SqlImportStatementsStep, SqlImportStatements } from './sql-import-steps';
 
 // 'sql' is not a SchemaFormatId - there's no text to parse and it can never be an export target (see
@@ -227,7 +228,7 @@ export function ImportSchemaDialog({ open, onCancel, onImportFile, onImportText,
 								<Alert severity="warning">Each field can only be mapped once: {duplicateTargets.join(', ')}.</Alert>
 							)}
 
-							{sqlImportError && <Alert severity="error">{sqlImportError.message}</Alert>}
+							{sqlImportError && <SqlErrorDisplay error={sqlImportError} />}
 						</>
 					)}
 				</Stack>

@@ -3,8 +3,10 @@ import { Alert, Box, Button, Checkbox, IconButton, InputAdornment, ListItemText,
 import type { SelectChangeEvent } from '@mui/material';
 import { StringUtils } from '../../../src/utils/string-utils.js';
 import type { ResultsSessionDetail, ResultsSqlHistory } from '../../../src/webview-messages/results-messages';
+import { DbErrorUtils } from '../../../src/utils/db-error-utils';
 import { FieldUtils } from '../../../src/utils/field-utils';
 import { resultsVsCodeApi } from '../vscode-api';
+import { CopyIconButton } from '../../shared/components/copy-icon-button';
 import { DbErrorTable } from '../../shared/components/db-error-table';
 import { SqlStatementBlock } from '../../shared/components/sql-statement-block';
 
@@ -215,9 +217,12 @@ export function HistoryTab({ session, searchText, onSearchTextChange, selectedCa
 						return (
 							<Stack key={index} spacing={1}>
 								<Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-									<Typography variant="body2">
-										{formatDuration(history.duration)} - <Box component="span" sx={{ color: history.error ? 'error.main' : 'success.main' }}>{getStatusMessage(session, history)}</Box>
-									</Typography>
+									<Stack direction="row" sx={{ alignItems: 'center', minWidth: 0 }}>
+										<Typography variant="body2">
+											{formatDuration(history.duration)} - <Box component="span" sx={{ color: history.error ? 'error.main' : 'success.main' }}>{getStatusMessage(session, history)}</Box>
+										</Typography>
+										{history.error && <CopyIconButton text={DbErrorUtils.toText(history.error)} label="Copy error" sx={{ ml: 0.5 }} />}
+									</Stack>
 									<Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
 										{hasParameters && (
 											<ToggleButtonGroup
