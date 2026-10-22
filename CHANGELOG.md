@@ -27,6 +27,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 
 ### Fixed
 
+- An unqualified table name now resolves to the first library on the connection's library list that has it, the same one DB2 runs the statement against, for column completion and result column headings. Before, the alphabetically first library won, and with a default table schema set on the connection, a table outside that schema got no columns at all.
 - Calling an overloaded procedure, one name with several parameter lists such as `QSYS2.QCMDEXC`, no longer fails with "The number of parameters the procedure expects and and the number of passed parameters is not equal". DB2 picks the overload from the number of arguments. Output parameter values of an overloaded procedure can't be shown, and a warning says so when it has any.
 
 ## [0.1.0] - 2026-10-12
