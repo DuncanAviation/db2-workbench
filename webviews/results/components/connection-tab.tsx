@@ -26,8 +26,11 @@ export function ConnectionTab({ session }: Props) {
 			if (event.data.command === 'libraryCheckResult' && event.data.uri === session.uri) {
 				let resolve = pendingChecks.current.get(event.data.requestId);
 				pendingChecks.current.delete(event.data.requestId);
-				// A lookup that failed lets the name through: OK then reports whatever is really wrong with it.
-				resolve?.(event.data.exists || event.data.error != null);
+				// The id comes from the message, so only an answer to a check still waiting resolves anything.
+				if (typeof resolve === 'function') {
+					// A lookup that failed lets the name through: OK then reports whatever is really wrong with it.
+					resolve(event.data.exists || event.data.error != null);
+				}
 				return;
 			}
 
