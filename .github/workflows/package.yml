@@ -26,12 +26,8 @@ jobs:
           target: win32-x64
         - os: ubuntu-latest
           target: linux-x64
-        - os: macos-latest
-          target: darwin-arm64
-        - os: macos-15-intel
-          target: darwin-x64
     runs-on: ${{ matrix.os }}
-    steps:
+    steps: &package-steps
     - uses: actions/checkout@v5
 
     - uses: actions/setup-node@v5
@@ -69,3 +65,20 @@ jobs:
         name: db2-workbench-${{ matrix.target }}
         path: '*.vsix'
         if-no-files-found: error
+
+  # GitHub's hosted macOS runners are often short of capacity, and a job that never gets one is
+  # cancelled after about 15 minutes. So the macOS packages are only built where they're needed: for a
+  # release (release.yml runs this workflow for a v* tag, and github.ref is the caller's), or on a manual
+  # run. A release whose macOS job wasn't picked up can rerun just that job.
+  package-macos:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: macos-latest
+          target: darwin-arm64
+        - os: macos-15-intel
+          target: darwin-x64
+    runs-on: ${{ matrix.os }}
+    steps: *package-steps

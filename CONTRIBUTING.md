@@ -47,6 +47,8 @@ Releases are published to the Marketplace by `.github/workflows/release.yml` whe
 3. Tag the merged commit and push the tag: `git tag v0.3.0` then `git push origin v0.3.0`.
 4. The workflow checks the tag, runs the tests, and builds every platform's package, then waits. Approve the `marketplace` deployment on the run's page to publish the packages and create the GitHub Release.
 
+Pull requests and pushes to `main` package only Windows and Linux. The macOS packages are built only for a release or a manual run of the Package workflow, because GitHub's hosted macOS runners are often short of capacity. A macOS job that never gets a runner is cancelled after about 15 minutes, and nothing publishes. Rerun just the failed jobs from the run's page.
+
 A published version can't be replaced, so a fix after a release is a new patch version and a new tag.
 
 ## Dependencies
