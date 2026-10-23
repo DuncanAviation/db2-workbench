@@ -714,7 +714,7 @@
 		"watch": "npm run bundle:dt-sql-parser && concurrently -n tsc,tsc:webviews,esbuild -c blue,cyan,yellow \"tsc -watch -p ./\" \"tsc -watch -p webviews\" \"npm run compile:webviews -- --watch\""
 	},
 	"dependencies": {
-		"odbc": "2.5.0"
+		"odbc": "2.6.0"
 	},
 	"devDependencies": {
 		"@dbml/core": "10.1.1",

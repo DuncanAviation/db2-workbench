@@ -100,6 +100,46 @@ suite('Commands', () => {
 		}
 	});
 
+	test('executeAllSql stops at a cancelled statement, and the statements after it never run', async () => {
+		let content = 'select * from sales.customer;\nselect * from sales.orders;\nselect * from sales.shipment;';
+		let document = await openSqlEditor(content);
+		let key = document.uri.toString();
+		let reached!: () => void;
+		let arrived = new Promise<void>(resolve => reached = resolve);
+		let recorder = TestSupport.recordEvents(key);
+
+		TestSupport.useDriver({
+			database: TestSupport.DATABASE,
+			responses: [{ match: /from\s+sales\.orders/i, untilCancelled: true }],
+			onStatement: sql => /from\s+sales\.orders/i.test(sql) && reached()
+		});
+
+		try {
+			await vscode.commands.executeCommand('db2-workbench.executeAllSql');
+			await arrived;
+			extension.connections.cancelExecution({ key: key });
+			await recorder.waitFor(DbConnectionEvent.EventType.ERROR, { userStatementsOnly: true });
+
+			// The batch's end has no event of its own, but exhaustMap drops every execute until it ends - so
+			// once a re-run of the first statement is let through, the batch is over, and the third statement
+			// would have run before it.
+			let runsOfFirst = () => executedSql(recorder).filter(sql => sql === 'select * from sales.customer').length;
+
+			await TestSupport.waitUntil('the batch to end, so a new run is accepted', () => {
+				if(runsOfFirst() < 2) {
+					void vscode.commands.executeCommand('db2-workbench.executeSql');
+					return false;
+				}
+
+				return true;
+			});
+
+			assert.ok(!executedSql(recorder).includes('select * from sales.shipment'), `the statement after the cancelled one ran: ${executedSql(recorder).join(' | ')}`);
+		} finally {
+			recorder.stop();
+		}
+	});
+
 	// executeSql deliberately runs only the FIRST statement a highlighted selection touches;
 	// executeSelectedSql runs all of them. Same selection, two commands, so the difference is the
 	// command rather than the selection.

@@ -184,6 +184,19 @@ export class DbConnection {
 		return this.cursor !== undefined;
 	}
 
+	/** Whether this session's driver can stop a running statement - see DbDriverConnection.cancel. */
+	get canCancel(): boolean {
+		return this._connection?.cancel != null;
+	}
+
+	/**
+	 * Asks the main connection to stop the statement it is running. The worker connection is left alone:
+	 * it only runs internal lookups, which nothing offers to cancel.
+	 */
+	async cancel(): Promise<void> {
+		await this._connection?.cancel?.();
+	}
+
 	async callProcedure(options: DbConnection.CallProcedureOptions): Promise<Nullable<DbResult>> {
 		if(options.name == null) {
 			return;

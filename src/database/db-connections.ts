@@ -39,6 +39,9 @@ export class DbConnections implements vscode.Disposable {
 	private _connectionsWrappers: Nullable<Map<string, ConnectionWrapper>>;
 	private _fetchAllCancellationSources: Nullable<Map<string, vscode.CancellationTokenSource>>;
 
+	// The cancel request for the user statement each session's execute() is running, while it can be cancelled.
+	private _executionCancels: Nullable<Map<string, () => void>>;
+
 	// Sessions (document uris) that have already been shown promptToConnect()'s notification -- so
 	// a session with no connection open yet gets it once, not once per keystroke.
 	private _contentAssistPrompted: Nullable<Set<string>>;
@@ -100,6 +103,10 @@ export class DbConnections implements vscode.Disposable {
 
 	private get fetchAllCancellationSources(): Map<string, vscode.CancellationTokenSource> {
 		return this._fetchAllCancellationSources ??= new Map();
+	}
+
+	private get executionCancels(): Map<string, () => void> {
+		return this._executionCancels ??= new Map();
 	}
 
 	private async getConnectionWrapper(key: string, configId?: string): Promise<Nullable<ConnectionWrapper>> {
@@ -284,9 +291,16 @@ export class DbConnections implements vscode.Disposable {
 		return password;
 	}
 
-	async execute(options: DbConnections.ExecuteOptions): Promise<void> {
+	/**
+	 * Runs one user statement on the session's main connection. Its progress notification offers Cancel
+	 * when the driver can cancel and the statement isn't a CALL: node-odbc documents that a procedure call
+	 * on DB2 for i ignores the request, so the button would do nothing. A cancelled statement reports
+	 * ERROR with the driver's own error, like any other failure. Resolves to CANCELLED whenever the user
+	 * asked to cancel, even if the statement finished anyway, so a caller running a batch stops there.
+	 */
+	async execute(options: DbConnections.ExecuteOptions): Promise<DbConnections.ExecuteStatus> {
 		if(options == null || options?.key == null || options?.sql == null) {
-			return;
+			return DbConnections.ExecuteStatus.NOT_RUN;
 		}
 
 		// Running a statement is always something the user asked for, whichever caller passes it on.
@@ -295,12 +309,12 @@ export class DbConnections implements vscode.Disposable {
 		let wrapper = await this.getConnectionWrapper(options.key, options.configId);
 
 		if(wrapper == null) {
-			return;
+			return DbConnections.ExecuteStatus.NOT_RUN;
 		}
 
 		if(wrapper.connection.state !== DbConnection.State.OPEN) {
 			AlertUtils.onError('Your connection is not ready to execute a statement');
-			return;
+			return DbConnections.ExecuteStatus.NOT_RUN;
 		}
 
 		// A new query supersedes any fetchAll() loop still running for this key - stop it before
@@ -310,11 +324,13 @@ export class DbConnections implements vscode.Disposable {
 		let parseResults = StatementParser.parse(options.sql);
 
 		if(parseResults == null || !parseResults.isValid) {
-			return;
+			return DbConnections.ExecuteStatus.NOT_RUN;
 		}
 
 		let startTime = Date.now();
 		let procedureSchema: Nullable<string>;
+		let cancellable = wrapper.connection.canCancel && parseResults.statementType !== StatementParser.StatementType.SP;
+		let cancelRequested = false;
 
 		try {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.EXECUTING, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults });
@@ -322,17 +338,43 @@ export class DbConnections implements vscode.Disposable {
 			let result = await vscode.window.withProgress({
 				location: vscode.ProgressLocation.Notification,
 				title: wrapper.configuration.name,
-				cancellable: false
-			}, async (progress) => {
+				cancellable: cancellable
+			}, async (progress, token) => {
 				if(parseResults.statementType === StatementParser.StatementType.SP) {
 					procedureSchema = await this.resolveCallSchema(options, parseResults);
 					progress.report({ message: 'Executing call...' });
 					return this.runCall(wrapper, options, parseResults, procedureSchema);
 				}
 
-				progress.report({ message: 'Executing query...' });
-				await wrapper.connection.openCursor({ sql: parseResults.originalSql, fetchSize: this.extension.configurations.cursorFetchSize, parameters: options.parameters });
-				return <DbResult<Record<string, unknown>>>await wrapper.connection.fetch();
+				let requestCancel = () => {
+					if(cancelRequested) {
+						return;
+					}
+
+					cancelRequested = true;
+					progress.report({ message: 'Cancelling...' });
+
+					TryUtils.forgetPromise({
+						promise: () => wrapper.connection.cancel(),
+						context: 'db-connections execute() cancel',
+						onError: error => AlertUtils.onError(error)
+					});
+				};
+
+				if(cancellable) {
+					this.executionCancels.set(options.key, requestCancel);
+					token.onCancellationRequested(requestCancel);
+				}
+
+				try {
+					progress.report({ message: 'Executing query...' });
+					await wrapper.connection.openCursor({ sql: parseResults.originalSql, fetchSize: this.extension.configurations.cursorFetchSize, parameters: options.parameters });
+					return <DbResult<Record<string, unknown>>>await wrapper.connection.fetch();
+				} finally {
+					if(this.executionCancels.get(options.key) === requestCancel) {
+						this.executionCancels.delete(options.key);
+					}
+				}
 			});
 
 			let duplicateColumns = DuplicateColumnChecker.check(result?.columns)?.duplicateNames;
@@ -350,16 +392,32 @@ export class DbConnections implements vscode.Disposable {
 			if(!options.isInternal && LibraryListUtils.isLibraryListCommand(parseResults.originalSql, options.parameters ?? callParameters)) {
 				await this.syncLibraryListAfterUserCommand(options, wrapper);
 			}
+
+			return cancelRequested ? DbConnections.ExecuteStatus.CANCELLED : DbConnections.ExecuteStatus.SUCCEEDED;
 		} catch(error: any) {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.ERROR, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults, duration: Date.now() - startTime, error: error, historyParameters: options.historyParameters, isInternal: options.isInternal });
+
+			if(cancelRequested) {
+				return DbConnections.ExecuteStatus.CANCELLED;
+			}
 
 			// If the connection was lost, clear the cached connection so the user can re-authenticate
 			if(error.message && (error.message.includes('connection') || error.message.includes('comm'))) {
 				await this.close({ key: options.key });
 			}
+
+			return DbConnections.ExecuteStatus.FAILED;
 		} finally {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.READY, key: options.key, configuration: wrapper.configuration, connectionInfo: wrapper.info, parseResults: parseResults });
 		}
+	}
+
+	/**
+	 * Asks the statement execute() is running for this key to stop, the same as the progress
+	 * notification's Cancel button. A no-op when nothing cancellable is running.
+	 */
+	cancelExecution(options: DbConnections.CommonExecuteOptions): void {
+		this.executionCancels.get(options.key)?.();
 	}
 
 	/**
@@ -1037,6 +1095,16 @@ interface ConnectionWrapper {
 }
 
 export namespace DbConnections {
+	/** How execute() ended. */
+	export enum ExecuteStatus {
+		/** Nothing ran: no connection, the connection was busy, or the statement didn't parse. */
+		NOT_RUN = 'notRun',
+		SUCCEEDED = 'succeeded',
+		FAILED = 'failed',
+		/** The user asked to cancel, whether or not the statement stopped. */
+		CANCELLED = 'cancelled'
+	}
+
 	export interface CommonExecuteOptions {
 		key: string;
 		/** Resolves which configured connection to establish for a brand-new key, bypassing

@@ -70,6 +70,15 @@ export interface DbDriverConnection {
 	/** Opens a server-side cursor. Closing the returned cursor is the caller's job. */
 	openCursor(options: DbDriver.CursorOptions): Promise<DbCursor>;
 
+	/**
+	 * Optional. Asks the database to stop whatever is running on this connection, and the running call
+	 * then rejects with the driver's own cancellation error, on `driverErrors` like any other. Resolves
+	 * once the request is made, not once the statement has stopped: a database may only notice at its
+	 * next checkpoint, or finish the statement anyway. A no-op when nothing is running. A driver that
+	 * can't cancel doesn't implement this, and callers then offer no Cancel at all.
+	 */
+	cancel?(): Promise<void>;
+
 	close(): Promise<void>;
 }
 

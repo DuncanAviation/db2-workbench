@@ -228,6 +228,20 @@ class OdbcDriverConnection implements DbDriverConnection {
 		}
 	}
 
+	/**
+	 * node-odbc calls SQLCancel on the handle of every query() and callProcedure() in flight on this
+	 * connection, opening a cursor included, and each rejects with SQLSTATE HY008. A cursor's fetch() is
+	 * not among them, so a fetch already running finishes. node-odbc documents that a CALL on DB2 for i
+	 * can't be cancelled at all.
+	 */
+	async cancel(): Promise<void> {
+		try {
+			await this.connection.cancel();
+		} catch(error) {
+			throw OdbcDriver.normalizeError(error);
+		}
+	}
+
 	async close(): Promise<void> {
 		await this.connection.close();
 	}
