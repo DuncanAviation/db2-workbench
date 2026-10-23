@@ -36,7 +36,9 @@ Schemas, tables, columns, views and functions are suggested as you type, each co
 
 - Each open SQL file gets its own session, with its own results, connection and history. The results panel follows the active editor, or you can pick a session from the session list.
 - Results are paged. The grid fetches `cursorFetchSize` rows at a time and loads more as you scroll, so a large result set never has to be read in full.
-- Column headings can show the short (system) name, the long (SQL) name and the column description, in any combination (`db2-workbench.resultHeadingLabels`).
+- A statement's progress notification has a **Cancel** button that asks DB2 to stop it. The connection stays open, and **Execute All** stops at the cancelled statement. Stored procedure calls can't be cancelled on DB2 for i.
+- Column headings can show the short (system) name, the long (SQL) name and the column description, in any combination (`db2-workbench.resultHeadingLabels`). Hovering a heading shows all three with the column's type, and right-clicking one copies any of them.
+- Database errors have a **Copy error** button that copies the message with the driver's full error detail.
 - The **History** tab keeps recent statements and connection events for the session, and **Connection** shows the job behind it and its library list, which you can copy or edit. Editing reorders, adds or removes libraries on the session's connection only, until it disconnects. Library commands you run yourself, such as `CALL QSYS2.QCMDEXC('ADDLIBLE LIB(MYLIB)')`, are picked up too.
 - When the panel is too small, open the results in an editor tab or a separate window.
 
@@ -48,7 +50,7 @@ Schemas, tables, columns, views and functions are suggested as you type, each co
 
 ### Schema browser
 
-Choose **Open Schemas** on a connection to browse its schemas, tables, views, functions and procedures. Each table has tabs for:
+Choose **Open Schemas** on a connection to browse its schemas, tables, views, materialized query tables, functions and procedures. Each table has tabs for:
 
 - **Info**: the table's catalog details.
 - **Columns**: names, types, lengths, nullability, headings and text.
@@ -58,11 +60,13 @@ Choose **Open Schemas** on a connection to browse its schemas, tables, views, fu
 - **Triggers**: each trigger's definition, with the source of an external trigger's program.
 - **Data**: browse, search and edit the table's rows.
 
+A materialized query table has the tabs that apply to it, plus **Definition**, the select statement it was created from.
+
 ![The schema browser's Columns tab](images/readme/schema-columns.png)
 
 ### Editing table data
 
-On the **Data** tab, choose **Edit Data** to add, change and delete rows in place. Every change becomes an `INSERT`, `UPDATE` or `DELETE` in the **Run SQL** panel, where you can review it, copy it, or remove it before anything runs. **Run** executes them in order and marks each one as it succeeds or fails. Required columns are enforced, NULL is set explicitly, and new rows start from per-type defaults you can change in the tab's settings.
+On the **Data** tab, choose **Edit Data** to add, change, duplicate and delete rows in place. Every change becomes an `INSERT`, `UPDATE` or `DELETE` in the **Run SQL** panel, where you can review it, copy it, or remove it before anything runs. **Run** executes them in order and marks each one as it succeeds or fails. Required columns are enforced, NULL is set explicitly, and new rows start from per-type defaults you can change in the tab's settings.
 
 ![Editing table data, with the generated INSERT and UPDATE in the Run SQL panel](images/readme/data-edit.png)
 

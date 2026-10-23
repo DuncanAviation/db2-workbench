@@ -2,7 +2,7 @@
 	"name": "db2-workbench",
 	"displayName": "DB2 Workbench",
 	"description": "Run SQL and stored procedures against IBM DB2 for i (AS/400) over ODBC, with a results grid, schema browser, ER diagrams and SQL formatting.",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"publisher": "DuncanAviation",
 	"license": "Apache-2.0",
 	"preview": true,
