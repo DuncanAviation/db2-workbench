@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 22.17.0. `.npmrc` sets `engine-strict`, so `npm ci` refuses a Node version a dependency doesn't support.
+- Node.js 22.13 or later, on an LTS line (22, 24, 26). `.npmrc` sets `engine-strict`, so `npm ci` refuses a Node version a dependency doesn't support, and `vitest` doesn't support the odd-numbered lines (23, 25). CI uses 22.17.0. After switching Node versions, delete `node_modules` and run `npm ci` again so `odbc`'s native module is rebuilt.
 - VS Code 1.120 or later.
 - To run the extension against a real system: an IBM i host, the IBM i Access ODBC driver, and on Linux or macOS the unixODBC driver manager. None of these are needed for the test suites.
 
