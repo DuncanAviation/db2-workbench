@@ -5,7 +5,6 @@
 	"version": "0.2.0",
 	"publisher": "DuncanAviation",
 	"license": "Apache-2.0",
-	"preview": true,
 	"pricing": "Free",
 	"icon": "images/icon.png",
 	"galleryBanner": {
