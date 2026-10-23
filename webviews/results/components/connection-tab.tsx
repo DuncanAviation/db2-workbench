@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import type { DbErrorUtils } from '../../../src/utils/db-error-utils';
-import type { ResultsInboundMessage, ResultsSessionDetail } from '../../../src/webview-messages/results-messages';
+import { LibraryListUtils } from '../../../src/utils/library-list-utils';
+import type { ResultsInboundMessage, ResultsJobDetails, ResultsSessionDetail } from '../../../src/webview-messages/results-messages';
 import { CopyIconButton } from '../../shared/components/copy-icon-button';
 import { EditSchemaListDialog, libraryListTypeLabel } from '../../shared/components/edit-schema-list-dialog';
 import { resultsVsCodeApi } from '../vscode-api';
@@ -80,13 +81,16 @@ export function ConnectionTab({ session }: Props) {
 		resultsVsCodeApi.postMessage({ command: 'setLibraryList', uri: session.uri, userLibraries });
 	}
 
+	// The legend names only the types this list actually has, in the order they first appear.
+	let legendTypes = [...new Set(info.schemas.map(schema => schema.type?.toUpperCase()))];
+
 	return (
 		<Stack spacing={2} sx={{ p: 2 }}>
-			<Typography>Connected to <b>{session.connectionName}</b> on <b>{info.jobDetails.createdDate}</b> as <b>{session.userName}</b></Typography>
+			<Typography>Connected to <b>{session.connectionName}</b> as <b>{session.userName}</b> on <b>{info.jobDetails.createdDate}</b></Typography>
 
 			<Stack spacing={1}>
 				<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-					<Typography variant="subtitle1" sx={{ mr: 0.5 }}>Schema List</Typography>
+					<Typography variant="subtitle1" sx={{ fontWeight: 600, mr: 0.5 }}>Schema List</Typography>
 					<CopyIconButton text={info.schemas.map(schema => schema.name).join(', ')} label="Copy schema list" />
 					{editable && (
 						// The span keeps the tooltip working while the button is disabled, which MUI needs.
@@ -100,52 +104,46 @@ export function ConnectionTab({ session }: Props) {
 					)}
 				</Stack>
 
-				<Stack component="ol" aria-label="Schema list" sx={{ m: 0, pl: 0, listStyle: 'none' }}>
-					{info.schemas.map(schema => (
-						<Stack component="li" key={schema.name} direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
-							<Typography>{schema.name}</Typography>
-							<Typography variant="caption" sx={{ color: 'text.secondary' }}>{libraryListTypeLabel(schema.type)}</Typography>
+				<Stack component="ol" aria-label="Schema list" direction="row" useFlexGap sx={{ m: 0, pl: 0, listStyle: 'none', flexWrap: 'wrap', gap: 0.75 }}>
+					{info.schemas.map((schema, index) => (
+						// describeChild, or the tooltip's text would replace the entry's own name as its label.
+						<Tooltip key={schema.name} title={libraryListTypeLabel(schema.type)} describeChild>
+							<Stack
+								component="li"
+								direction="row"
+								spacing={0.75}
+								sx={{
+									alignItems: 'center',
+									py: 0.375,
+									pl: 0.5,
+									pr: 1.25,
+									borderRadius: 1,
+									bgcolor: 'action.hover',
+									borderLeft: 3,
+									borderLeftColor: typeColor(schema.type)
+								}}
+							>
+								<Typography variant="caption" sx={{ color: 'text.secondary', minWidth: 14, textAlign: 'right' }}>{index + 1}</Typography>
+								<Typography>{schema.name}</Typography>
+								<Box component="span" sx={VISUALLY_HIDDEN}>{libraryListTypeLabel(schema.type)}</Box>
+							</Stack>
+						</Tooltip>
+					))}
+				</Stack>
+
+				<Stack direction="row" spacing={1.75} aria-hidden="true">
+					{legendTypes.map(type => (
+						<Stack key={type} direction="row" spacing={0.625} sx={{ alignItems: 'center' }}>
+							<Box sx={{ width: 8, height: 8, borderRadius: 0.5, bgcolor: typeColor(type) }} />
+							<Typography variant="caption" sx={{ color: 'text.secondary' }}>{libraryListTypeLabel(type)}</Typography>
 						</Stack>
 					))}
 				</Stack>
 			</Stack>
 
-			<Stack spacing={1}>
-				<Typography variant="subtitle1">Primary Connection</Typography>
-
-				<Stack>
-					<Typography variant="subtitle2">Job Name</Typography>
-					<Typography>{info.jobDetails.jobName}</Typography>
-				</Stack>
-
-				<Stack>
-					<Typography variant="subtitle2">IP</Typography>
-					<Typography>{info.jobDetails.ip}</Typography>
-				</Stack>
-
-				<Stack>
-					<Typography variant="subtitle2">Sort Sequence</Typography>
-					<Typography>{info.jobDetails.sortSequence}</Typography>
-				</Stack>
-			</Stack>
-
-			<Stack spacing={1}>
-				<Typography variant="subtitle1">Worker Connection</Typography>
-
-				<Stack>
-					<Typography variant="subtitle2">Job Name</Typography>
-					<Typography>{info.workerJobDetails.jobName}</Typography>
-				</Stack>
-
-				<Stack>
-					<Typography variant="subtitle2">IP</Typography>
-					<Typography>{info.workerJobDetails.ip}</Typography>
-				</Stack>
-
-				<Stack>
-					<Typography variant="subtitle2">Sort Sequence</Typography>
-					<Typography>{info.workerJobDetails.sortSequence}</Typography>
-				</Stack>
+			<Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-start', gap: 1.5 }}>
+				<JobCard title="Primary Connection" job={info.jobDetails} />
+				<JobCard title="Worker Connection" job={info.workerJobDetails} />
 			</Stack>
 
 			{editable && (
@@ -161,5 +159,36 @@ export function ConnectionTab({ session }: Props) {
 				/>
 			)}
 		</Stack>
+	);
+}
+
+// Theme palette colors rather than --vscode-* tokens, since MUI adapts these to the light or dark mode.
+const TYPE_COLORS: Record<string, string> = {
+	[LibraryListUtils.EntryType.SYSTEM]: 'text.disabled',
+	[LibraryListUtils.EntryType.PRODUCT]: 'success.main',
+	[LibraryListUtils.EntryType.CURRENT]: 'warning.main',
+	[LibraryListUtils.EntryType.USER]: 'info.main'
+};
+
+function typeColor(type: string): string {
+	return TYPE_COLORS[type?.toUpperCase()] ?? 'divider';
+}
+
+// The chip shows its type by color alone, so a screen reader gets it as text.
+const VISUALLY_HIDDEN = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' } as const;
+
+function JobCard({ title, job }: { title: string; job: ResultsJobDetails }) {
+	return (
+		<Box component="section" aria-label={title} sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+			<Typography sx={{ fontWeight: 600, px: 1.25, py: 0.75, borderBottom: 1, borderColor: 'divider' }}>{title}</Typography>
+			<Box component="dl" sx={{ m: 0, px: 1.25, py: 1, display: 'grid', gridTemplateColumns: '110px auto', rowGap: 1, columnGap: 1 }}>
+				<Typography component="dt" sx={{ color: 'text.secondary' }}>Job Name</Typography>
+				<Typography component="dd" sx={{ m: 0 }}>{job.jobName}</Typography>
+				<Typography component="dt" sx={{ color: 'text.secondary' }}>IP</Typography>
+				<Typography component="dd" sx={{ m: 0 }}>{job.ip}</Typography>
+				<Typography component="dt" sx={{ color: 'text.secondary' }}>Sort Sequence</Typography>
+				<Typography component="dd" sx={{ m: 0 }}>{job.sortSequence}</Typography>
+			</Box>
+		</Box>
 	);
 }

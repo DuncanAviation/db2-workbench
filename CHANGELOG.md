@@ -24,6 +24,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 ### Changed
 
 - The diagram's column tooltip now shows the column's type.
+- The results panel's Connection tab makes better use of a wide panel. The schema list is shown as numbered entries that wrap across the panel, each colored by its type with a legend below, and the primary and worker jobs sit side by side in their own cards. The header names who you're connected as before when.
 - Tooltips throughout the extension wait half a second before showing, like VS Code's own hovers, instead of appearing almost immediately.
 - Data grids take their look from VS Code's own tables: the row stripes, header background and column lines use the same theme colors as the Keyboard Shortcuts editor, with no line between rows.
 - The results grid and the Data tab are only as wide as their columns, instead of stretching the last column across the rest of the panel.
