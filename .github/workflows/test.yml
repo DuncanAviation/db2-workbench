@@ -11,6 +11,9 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   lint_and_unit:
     runs-on: windows-latest
