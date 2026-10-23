@@ -369,6 +369,11 @@ export class DbConnections implements vscode.Disposable {
 				try {
 					progress.report({ message: 'Executing query...' });
 					await wrapper.connection.openCursor({ sql: parseResults.originalSql, fetchSize: this.extension.configurations.cursorFetchSize, parameters: options.parameters });
+
+					if(!cancelRequested) {
+						progress.report({ message: 'Fetching rows...' });
+					}
+
 					return <DbResult<Record<string, unknown>>>await wrapper.connection.fetch();
 				} finally {
 					if(this.executionCancels.get(options.key) === requestCancel) {
