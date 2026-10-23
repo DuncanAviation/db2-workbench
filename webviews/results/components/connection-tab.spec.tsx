@@ -45,11 +45,33 @@ function session(overrides: Partial<ResultsSessionDetail> = {}): ResultsSessionD
 }
 
 describe('ConnectionTab', () => {
-	it('lists the schema list in order with each entry\'s type', () => {
+	it('lists the schema list in order, numbered, with each entry\'s type', () => {
 		renderWebview(<ConnectionTab session={session()} />);
 
 		let entries = within(screen.getByRole('list', { name: 'Schema list' })).getAllByRole('listitem');
-		expect(entries.map(entry => entry.textContent)).toEqual(['QSYSSystem', 'QTEMPUser', 'APPLUser', 'SALESUser']);
+		expect(entries.map(entry => entry.textContent)).toEqual(['1QSYSSystem', '2QTEMPUser', '3APPLUser', '4SALESUser']);
+	});
+
+	it('names who is connected before when', () => {
+		renderWebview(<ConnectionTab session={session()} />);
+
+		expect(screen.getByText(/^Connected to/).textContent).toBe('Connected to Test Connection as TESTUSER on 2026-01-01T08:00:00.000Z');
+	});
+
+	it('shows a legend entry for only the types the list has', () => {
+		renderWebview(<ConnectionTab session={session()} />);
+
+		// The legend is hidden from assistive technology, since each entry already carries its type as text.
+		expect(screen.getAllByText('System', { ignore: 'li span' })).toHaveLength(1);
+		expect(screen.queryByText('Current')).toBeNull();
+		expect(screen.queryByText('Product')).toBeNull();
+	});
+
+	it('shows the primary and worker jobs in their own cards', () => {
+		renderWebview(<ConnectionTab session={session()} />);
+
+		expect(within(screen.getByRole('region', { name: 'Primary Connection' })).getByText('123456/QUSER/QZDASOINIT')).toBeTruthy();
+		expect(within(screen.getByRole('region', { name: 'Worker Connection' })).getByText('123457/QUSER/QZDASOINIT')).toBeTruthy();
 	});
 
 	it('copies the schema list as a comma-delimited list of names, without the types', async () => {
