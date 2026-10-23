@@ -1,5 +1,6 @@
 import { exhaustMap, Subject } from 'rxjs';
 import * as vscode from 'vscode';
+import { DbConnections } from './database/db-connections.js';
 import { Extension } from './extension.js';
 import { HistoryParameter } from './interfaces/history-parameter.js';
 import { Parameter } from './interfaces/parameter.js';
@@ -258,8 +259,13 @@ export class Commands implements vscode.Disposable {
 			return;
 		}
 
+		// A cancelled statement ends the batch: the user asked for the run to stop, not just that statement.
 		for(let plan of plans) {
-			await this.extension.connections.execute({key: uri, sql: plan.sql, parameters: plan.parameters, historyParameters: plan.historyParameters});
+			let status = await this.extension.connections.execute({key: uri, sql: plan.sql, parameters: plan.parameters, historyParameters: plan.historyParameters});
+
+			if(status === DbConnections.ExecuteStatus.CANCELLED) {
+				break;
+			}
 		}
 	}
 

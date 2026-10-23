@@ -18,7 +18,8 @@ import { FakeLibraryList } from './fake-library-list.js';
  * well as driven from an extension-host integration test.
  *
  * A statement is resolved in five steps:
- * 1. the response list, for a test that wants to pin exact rows (or inject an error, or a delay);
+ * 1. the response list, for a test that wants to pin exact rows (or inject an error, a delay, or a
+ *    statement that runs until cancelled);
  * 2. the connection's own FakeLibraryList, which answers LIBRARY_LIST_INFO and applies QCMDEXC library
  *    commands - per connection, since the main and worker jobs each have a library list of their own;
  * 3. CatalogResponder, which answers the QSYS2 catalog queries out of the declared FakeDatabase;
@@ -32,6 +33,12 @@ import { FakeLibraryList } from './fake-library-list.js';
 export class FakeDriver implements DbDriver {
 	static readonly ID = 'fake';
 	static readonly DEFAULT_FETCH_SIZE = 100;
+
+	/** What a statement stopped by cancel() fails with: node-odbc's SQLSTATE for a cancelled operation. */
+	static readonly CANCELLED_ERROR: FakeDriver.ErrorSpec = {
+		message: '[odbc] Operation canceled',
+		driverErrors: [{ code: 0, state: 'HY008', message: 'Operation canceled' }]
+	};
 
 	private responder: Nullable<CatalogResponder>;
 	private dml: Nullable<FakeDml>;
@@ -78,7 +85,7 @@ export class FakeDriver implements DbDriver {
 	 * first. Both of those exist so a test can exercise the paths that only a slow or failing
 	 * statement reaches - the progress/serialization behavior, and the History tab's error rendering.
 	 */
-	async resolve(sql: string, parameters?: Array<Parameter>, libraryList?: FakeLibraryList): Promise<Record<string, unknown>[]> {
+	async resolve(sql: string, parameters?: Array<Parameter>, libraryList?: FakeLibraryList, cancellation?: FakeCancellation): Promise<Record<string, unknown>[]> {
 		this.options.onStatement?.(sql, parameters);
 
 		let response = this.findResponse(sql, parameters);
@@ -86,6 +93,14 @@ export class FakeDriver implements DbDriver {
 		if(response) {
 			if(response.delayMs != null) {
 				await new Promise(resolve => setTimeout(resolve, response.delayMs));
+			}
+
+			if(response.untilCancelled) {
+				if(cancellation == null) {
+					throw new Error('FakeDriver: an untilCancelled response can only answer a statement a connection can cancel');
+				}
+
+				await cancellation.wait();
 			}
 
 			if(response.error != null) {
@@ -251,12 +266,38 @@ export class FakeDriver implements DbDriver {
 	}
 }
 
+/**
+ * The statements on one connection that are waiting to be cancelled (see Response.untilCancelled).
+ * Like node-odbc, cancel() fails every one of them and is a no-op when none is waiting.
+ */
+class FakeCancellation {
+	private waiting = new Set<() => void>();
+
+	wait(): Promise<void> {
+		return new Promise((_resolve, reject) => {
+			this.waiting.add(() => reject(FakeDriver.toError(FakeDriver.CANCELLED_ERROR)));
+		});
+	}
+
+	cancel(): void {
+		let waiting = [...this.waiting];
+		this.waiting.clear();
+		waiting.forEach(fail => fail());
+	}
+}
+
 class FakeDriverConnection implements DbDriverConnection {
+	private cancellation = new FakeCancellation();
+
 	constructor(private driver: FakeDriver, private libraryList?: FakeLibraryList) { }
 
 	async query(options: DbDriver.QueryOptions): Promise<Nullable<DbResult>> {
 		FakeDriverConnection.checkMarkerCount(options);
-		return FakeDriver.toResult(await this.driver.resolve(options.sql, options.parameters, this.libraryList));
+		return FakeDriver.toResult(await this.driver.resolve(options.sql, options.parameters, this.libraryList, this.cancellation));
+	}
+
+	async cancel(): Promise<void> {
+		this.cancellation.cancel();
 	}
 
 	/**
@@ -316,7 +357,7 @@ class FakeDriverConnection implements DbDriverConnection {
 
 	async openCursor(options: DbDriver.CursorOptions): Promise<DbCursor> {
 		FakeDriverConnection.checkMarkerCount(options);
-		let rows = await this.driver.resolve(options.sql, options.parameters, this.libraryList);
+		let rows = await this.driver.resolve(options.sql, options.parameters, this.libraryList, this.cancellation);
 		return new FakeCursor(rows, options.fetchSize ?? this.driver.fetchSize);
 	}
 
@@ -390,6 +431,10 @@ export namespace FakeDriver {
 		error?: ErrorSpec;
 		/** Delays the answer, for testing progress reporting and the render/execute serialization. */
 		delayMs?: number;
+		/** Holds the answer until the connection's cancel() is called, then fails with CANCELLED_ERROR -
+		 * a statement that runs until the user stops it. A CALL can't be held: node-odbc documents a
+		 * DB2 for i procedure call as not cancellable, so callProcedure() never passes a cancellation. */
+		untilCancelled?: boolean;
 	}
 
 	export interface ErrorSpec {

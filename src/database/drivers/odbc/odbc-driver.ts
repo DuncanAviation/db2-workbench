@@ -191,8 +191,21 @@ export class OdbcDriver implements DbDriver {
 	}
 }
 
+/**
+ * node-odbc's Statement.execute() takes the same query options as Connection.query(), and returns a
+ * Cursor when they ask for one, but its type declaration lists neither.
+ */
+interface CursorStatement {
+	execute(options: odbc.CursorQueryOptions): Promise<odbc.Cursor>;
+}
+
 /** One open ODBC connection. Created by OdbcDriver.connect() - never constructed directly. */
 class OdbcDriverConnection implements DbDriverConnection {
+	// The cursor statements preparing, executing or fetching right now - the ones cancel() stops (see
+	// openCursor()). Only busy ones: SQLCancel on an idle statement can close its open cursor, as the
+	// Access text driver's does, which would break the next Load More.
+	private busyStatements = new Set<odbc.Statement>();
+
 	constructor(private connection: odbc.Connection) { }
 
 	async query(options: DbDriver.QueryOptions): Promise<Nullable<DbResult>> {
@@ -219,12 +232,53 @@ class OdbcDriverConnection implements DbDriverConnection {
 		}
 	}
 
+	/**
+	 * Opened through a Statement rather than connection.query(), so the cursor can be cancelled while it
+	 * fetches. connection.cancel() only reaches a statement while query() is still executing it, and DB2 for
+	 * i often does a query's real work in the first fetch, after that. A cursor made by Statement.execute()
+	 * shares the statement's handle, which the statement and not the cursor frees, so statement.cancel()
+	 * can call SQLCancel on it at any point. The cost is a prepare and an execute where query() would make
+	 * one SQLExecDirect call.
+	 */
 	async openCursor(options: DbDriver.CursorOptions): Promise<DbCursor> {
+		let statement: Nullable<odbc.Statement>;
+
 		try {
-			let cursor = <odbc.Cursor>await this.connection.query(options.sql, <Array<number | string>>options.parameters, OdbcDriverConnection.toQueryOptions(options));
-			return new OdbcDriverCursor(cursor);
+			statement = await this.connection.createStatement();
+			this.busyStatements.add(statement);
+			await statement.prepare(options.sql);
+
+			if(options.parameters?.length) {
+				await statement.bind(<Array<number | string>>options.parameters);
+			}
+
+			let cursor = await (<CursorStatement><unknown>statement).execute(OdbcDriverConnection.toQueryOptions(options));
+			return new OdbcDriverCursor(cursor, statement, this.busyStatements);
 		} catch(error) {
+			await statement?.close().catch(() => undefined);
 			throw OdbcDriver.normalizeError(error);
+		} finally {
+			if(statement != null) {
+				this.busyStatements.delete(statement);
+			}
+		}
+	}
+
+	/**
+	 * connection.cancel() calls SQLCancel on every query() and callProcedure() in flight on this
+	 * connection, and statement.cancel() reaches a cursor while it is opening or fetching. What was stopped
+	 * rejects with SQLSTATE HY008. node-odbc documents that a CALL on DB2 for i can't be cancelled at all.
+	 */
+	async cancel(): Promise<void> {
+		let results = await Promise.allSettled([
+			this.connection.cancel(),
+			// Deferred, because a closed statement's cancel() throws rather than rejecting.
+			...[...this.busyStatements].map(statement => Promise.resolve().then(() => statement.cancel()))
+		]);
+		let failure = results.find(result => result.status === 'rejected');
+
+		if(failure != null) {
+			throw OdbcDriver.normalizeError((<PromiseRejectedResult>failure).reason);
 		}
 	}
 
@@ -257,23 +311,35 @@ class OdbcDriverConnection implements DbDriverConnection {
 	}
 }
 
+/**
+ * A cursor plus the statement it was opened from (see OdbcDriverConnection.openCursor), closed together.
+ * The statement is in its connection's busy set while a fetch runs, so cancel() can stop it.
+ */
 class OdbcDriverCursor implements DbCursor {
-	constructor(private cursor: odbc.Cursor) { }
+	constructor(private cursor: odbc.Cursor, private statement: odbc.Statement, private busyStatements: Set<odbc.Statement>) { }
 
 	get noData(): boolean {
 		return this.cursor.noData;
 	}
 
 	async fetch(): Promise<Nullable<DbResult>> {
+		this.busyStatements.add(this.statement);
+
 		try {
 			let result = await this.cursor.fetch();
 			return OdbcDriver.sanitizeRows(result);
 		} catch(error) {
 			throw OdbcDriver.normalizeError(error);
+		} finally {
+			this.busyStatements.delete(this.statement);
 		}
 	}
 
 	async close(): Promise<void> {
-		await this.cursor.close();
+		try {
+			await this.cursor.close();
+		} finally {
+			await this.statement.close();
+		}
 	}
 }

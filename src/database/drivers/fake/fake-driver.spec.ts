@@ -131,4 +131,31 @@ describe('FakeDriver', () => {
 		await connection.query({ sql: 'select 1 from sysibm.sysdummy1' });
 		expect(Date.now() - start).to.be.greaterThanOrEqual(20);
 	});
+
+	it('holds an untilCancelled statement until cancel(), then fails it with HY008 the way node-odbc does', async () => {
+		let reached!: () => void;
+		let arrived = new Promise<void>(resolve => reached = resolve);
+		let connection = await connect({
+			responses: [{ sql: 'select * from sales.orders', untilCancelled: true }],
+			onStatement: () => reached()
+		});
+
+		let running = connection.openCursor({ sql: 'select * from sales.orders' });
+		await arrived;
+		await connection.cancel?.();
+
+		try {
+			await running;
+			expect.fail('expected the cancelled statement to reject');
+		} catch(error: any) {
+			expect(error.driverErrors?.[0]?.state).to.equal('HY008');
+		}
+	});
+
+	it('treats cancel() with nothing running as a no-op', async () => {
+		let connection = await connect();
+
+		await connection.cancel?.();
+		expect(await connection.query({ sql: 'select * from sales.customer' })).to.have.lengthOf(3);
+	});
 });

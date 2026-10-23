@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import { DbConnections } from '../database/db-connections.js';
 import { defineFakeDatabase } from '../database/drivers/fake/fake-database.js';
 import { DbConnectionEvent } from '../events/db-connection-event.js';
 import { Event } from '../events/event.js';
@@ -149,6 +150,60 @@ suite('DbConnections against the fake driver', () => {
 			assert.strictEqual(result.eventType, DbConnectionEvent.EventType.ERROR);
 			assert.match(result.error?.message ?? '', /not found/);
 			assert.strictEqual((<{ driverErrors?: { state: string }[] }>result.error)?.driverErrors?.[0].state, '42704');
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	test('cancelling a running query reports the driver\'s cancellation as ERROR and leaves the session usable', async () => {
+		let key = 'test://cancel';
+		let reached!: () => void;
+		let arrived = new Promise<void>(resolve => reached = resolve);
+		let recorder = TestSupport.recordEvents(key);
+
+		try {
+			TestSupport.useDriver({
+				database: TestSupport.DATABASE,
+				responses: [{ match: /from\s+sales\.orders/i, untilCancelled: true }],
+				onStatement: sql => /from\s+sales\.orders/i.test(sql) && reached()
+			});
+
+			let running = extension.connections.execute({ key: key, configId: TestSupport.CONFIG_ID, sql: 'select * from sales.orders' });
+			await arrived;
+			extension.connections.cancelExecution({ key: key });
+
+			assert.strictEqual(await running, DbConnections.ExecuteStatus.CANCELLED);
+
+			let error = await recorder.waitFor(DbConnectionEvent.EventType.ERROR, { userStatementsOnly: true });
+			assert.strictEqual((<{ driverErrors?: { state: string }[] }>error.error)?.driverErrors?.[0].state, 'HY008');
+
+			// Unlike a lost connection, a cancelled statement must not close the session.
+			let next = await TestSupport.execute(key, 'select * from sales.customer');
+			assert.strictEqual(next.eventType, DbConnectionEvent.EventType.RESULT);
+			assert.strictEqual(next.result?.length, 3);
+		} finally {
+			recorder.stop();
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	test('a CALL offers no cancel, and cancelling it does nothing', async () => {
+		let key = 'test://cancel-call';
+		let reached!: () => void;
+		let arrived = new Promise<void>(resolve => reached = resolve);
+
+		try {
+			TestSupport.useDriver({
+				database: TestSupport.DATABASE,
+				responses: [{ match: /call sales\.next_order_number/i, rows: [], delayMs: 50 }],
+				onStatement: sql => /call sales\.next_order_number/i.test(sql) && reached()
+			});
+
+			let running = extension.connections.execute({ key: key, configId: TestSupport.CONFIG_ID, sql: `call sales.next_order_number('ORD', 0)` });
+			await arrived;
+			extension.connections.cancelExecution({ key: key });
+
+			assert.strictEqual(await running, DbConnections.ExecuteStatus.SUCCEEDED);
 		} finally {
 			await TestSupport.closeSessions(key);
 		}

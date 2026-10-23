@@ -2,7 +2,7 @@ import { act } from '@testing-library/react';
 
 // jsdom has no layout engine: offsetHeight, clientHeight and scrollHeight are all 0, and scrollTop never
 // moves. @tanstack/react-virtual sizes its window from exactly those values - the scroll element's
-// offsetHeight is its viewport, and a row's offsetHeight is its measured size (see getRect and
+// clientHeight is its viewport, and a row's offsetHeight is its measured size (see getRect and
 // measureElement in @tanstack/virtual-core) - so under plain jsdom a virtualized list renders no rows at
 // all. This supplies just those numbers, which is enough to exercise the windowing logic: which rows
 // render for a given viewport and scroll position, and what a scroll handler decides from them.
@@ -12,7 +12,7 @@ import { act } from '@testing-library/react';
 // height comes from this stub rather than from the stylesheet. That class of bug needs a real browser.
 
 export interface FakeLayout {
-	/** offsetHeight of any element that is not a virtualized row - what a virtualizer reads as its viewport. */
+	/** clientHeight of any element, and offsetHeight of any but a virtualized row - what a virtualizer reads as its viewport. */
 	viewportHeight: number;
 	/** offsetHeight of a row the virtualizer measures (one carrying `data-index`). Defaults to viewportHeight. */
 	rowHeight?: number;
@@ -29,10 +29,16 @@ export interface FakeLayoutHandle {
 	restore(): void;
 }
 
-const PATCHED = ['offsetHeight', 'offsetWidth'] as const;
+// jsdom defines the offset* getters on HTMLElement and the client* getters on Element.
+const PATCHED = [
+	[HTMLElement.prototype, 'offsetHeight'],
+	[HTMLElement.prototype, 'offsetWidth'],
+	[Element.prototype, 'clientHeight'],
+	[Element.prototype, 'clientWidth']
+] as const;
 
 export function useFakeLayout(layout: FakeLayout): FakeLayoutHandle {
-	let originals = PATCHED.map(name => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const);
+	let originals = PATCHED.map(([prototype, name]) => [prototype, name, Object.getOwnPropertyDescriptor(prototype, name)] as const);
 	let rowHeight = layout.rowHeight ?? layout.viewportHeight;
 	let width = layout.width ?? 1024;
 
@@ -44,6 +50,20 @@ export function useFakeLayout(layout: FakeLayout): FakeLayoutHandle {
 	});
 
 	Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+		configurable: true,
+		get() {
+			return width;
+		}
+	});
+
+	Object.defineProperty(Element.prototype, 'clientHeight', {
+		configurable: true,
+		get() {
+			return layout.viewportHeight;
+		}
+	});
+
+	Object.defineProperty(Element.prototype, 'clientWidth', {
 		configurable: true,
 		get() {
 			return width;
@@ -67,11 +87,11 @@ export function useFakeLayout(layout: FakeLayout): FakeLayoutHandle {
 			});
 		},
 		restore() {
-			for (let [name, descriptor] of originals) {
+			for (let [prototype, name, descriptor] of originals) {
 				if (descriptor) {
-					Object.defineProperty(HTMLElement.prototype, name, descriptor);
+					Object.defineProperty(prototype, name, descriptor);
 				} else {
-					delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+					delete (prototype as unknown as Record<string, unknown>)[name];
 				}
 			}
 
