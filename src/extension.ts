@@ -198,13 +198,7 @@ export class Extension {
 	}
 
 	get secrets(): Secrets {
-		if(!this._secrets) {
-			let secrets = new Secrets(this);
-			this.context.subscriptions.push(secrets);
-			this._secrets = secrets;
-		}
-
-		return this._secrets;
+		return this._secrets ??= new Secrets(this);
 	}
 
 	get connectionEditorProvider(): ConnectionEditorProvider {
@@ -276,10 +270,6 @@ export class Extension {
 
 		await this.resultsViewProvider.refreshParameters(event.document.uri.toString());
 	}
-
-	async deactivate(): Promise<void> {
-		await this.secrets.dispose();
-	}
 }
 
 export let extension: Extension;
@@ -288,10 +278,4 @@ export function activate(context: vscode.ExtensionContext): Db2WorkbenchApi {
 	extension = new Extension(context);
 	extension.activate();
 	return extension.api;
-}
-
-export async function deactivate() {
-	if(extension) {
-		await extension.deactivate();
-	}
 }

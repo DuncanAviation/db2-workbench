@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DbConnection } from '../database/db-connection.js';
 import { Extension } from '../extension.js';
 import { ConnectionConfig } from '../models/connection-config.js';
+import { Secrets } from '../secrets.js';
 import { AlertUtils } from '../utils/alert-utils.js';
 import { DbErrorUtils } from '../utils/db-error-utils.js';
 import { Nullable } from '../utils/nullable.js';
@@ -114,7 +115,42 @@ export class ConnectionEditorProvider {
 			case 'testConnection':
 				await this.testConnection(message.connection);
 				return;
+
+			case 'setPassword':
+				await this.setPassword(message);
+				return;
 		}
+	}
+
+	/**
+	 * Replaces the stored password for a host and user name, for a password that changed on the host.
+	 * The stored one is only overwritten once a new one is entered, so cancelling changes nothing. It
+	 * doesn't connect - Test Connection is there for that.
+	 */
+	private async setPassword(target: Secrets.StoreKey): Promise<void> {
+		if(StringUtils.isBlank(target.host) || StringUtils.isBlank(target.userName)) {
+			return;
+		}
+
+		let password = await this.promptForPassword(target);
+
+		if(password == null) {
+			return;
+		}
+
+		await this.extension.secrets.store({ host: target.host, userName: target.userName, password });
+		this.currentPanel?.webview.postMessage({command: 'passwordSet', message: `Password set for ${target.userName}@${target.host}.`});
+	}
+
+	// Its own method so the integration tests can answer it - a headless run has nobody to type into an
+	// input box.
+	private async promptForPassword(target: Secrets.StoreKey): Promise<Nullable<string>> {
+		return vscode.window.showInputBox({
+			prompt: `Enter the new password for ${target.userName}@${target.host}`,
+			password: true,
+			ignoreFocusOut: true,
+			validateInput: value => StringUtils.isBlank(value) ? 'A password is required.' : undefined
+		});
 	}
 
 	private async testConnection(config: ConnectionConfig): Promise<void> {

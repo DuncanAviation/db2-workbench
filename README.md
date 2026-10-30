@@ -10,7 +10,7 @@ DB2 Workbench is a VS Code extension for working with IBM DB2 for i (AS/400). Wr
 
 - An ODBC driver for DB2 for i installed on your machine (the IBM i Access Client Solutions ODBC driver), and a host it can reach.
 - On Linux and macOS, the unixODBC driver manager: `sudo apt install unixodbc` (Debian/Ubuntu), `sudo dnf install unixODBC` (RHEL/Fedora) or `brew install unixodbc` (macOS, Homebrew in its default location).
-- Credentials for the host. You're prompted for the password on first connect. It is kept in VS Code's secret storage, never in settings.
+- Credentials for the host. You're prompted for the password on first connect. It is kept in VS Code's secret storage, never in settings, and stays there until the host refuses it. When your password changes, use **Set Password** in the connection editor.
 
 ## Getting started
 
