@@ -414,7 +414,7 @@ function DataTableBodyRowContent<TData>({ row, bgcolor, selected, hoverColor, ce
 
 			{hasRowActions && (
 				<TableCell sx={{ ...ACTIONS_CELL_SX, bgcolor }}>
-					<IconButton size="small" aria-label="Actions" onClick={event => handlersRef.current.onActionsClick(event, row)}>
+					<IconButton aria-label="Actions" onClick={event => handlersRef.current.onActionsClick(event, row)}>
 						⋮
 					</IconButton>
 				</TableCell>
@@ -655,7 +655,6 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 		<Stack sx={{ height: '100%', minHeight: 0, flexGrow: 1 }}>
 			<Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, p: 1 }}>
 				<TextField
-					size="small"
 					placeholder="Filter..."
 					value={globalFilter}
 					onChange={event => {
@@ -668,7 +667,6 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 							endAdornment: globalFilter && (
 								<InputAdornment position="end">
 									<IconButton
-										size="small"
 										aria-label="Clear filter"
 										onClick={() => {
 											setGlobalFilter('');
@@ -695,7 +693,7 @@ export function DataTable<TData>({ table, maxCellWidth, containerRef, onScroll, 
 					))}
 
 					{onClearAllFilterChips && (
-						<Button size="small" onClick={onClearAllFilterChips} sx={{ ml: 'auto' }}>Clear</Button>
+						<Button onClick={onClearAllFilterChips} sx={{ ml: 'auto' }}>Clear</Button>
 					)}
 				</Stack>
 			)}

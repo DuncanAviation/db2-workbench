@@ -115,17 +115,16 @@ export function App() {
 
 			<Section title="Connection">
 				<Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 2 }}>
-					<TextField size="small" label="Name" value={name} onChange={e => setName(e.target.value)} required autoComplete="off" />
-					<TextField size="small" label="Default Table Schema" value={defaultTableSchema} onChange={e => setDefaultTableSchema(e.target.value)} required autoComplete="off" />
-					<TextField size="small" label="Host" value={host} onChange={e => setHost(e.target.value)} required autoComplete="off" />
-					<TextField size="small" label="User Name" value={userName} onChange={e => setUserName(e.target.value)} required autoComplete="off" />
+					<TextField label="Name" value={name} onChange={e => setName(e.target.value)} required autoComplete="off" />
+					<TextField label="Default Table Schema" value={defaultTableSchema} onChange={e => setDefaultTableSchema(e.target.value)} required autoComplete="off" />
+					<TextField label="Host" value={host} onChange={e => setHost(e.target.value)} required autoComplete="off" />
+					<TextField label="User Name" value={userName} onChange={e => setUserName(e.target.value)} required autoComplete="off" />
 				</Box>
 			</Section>
 
 			<Section title="Sign-on">
 				<Stack direction="row" spacing={1}>
 					<Button
-						size="small"
 						variant="outlined"
 						onClick={handleSetPassword}
 						disabled={StringUtils.isBlank(host) || StringUtils.isBlank(userName)}
@@ -134,7 +133,6 @@ export function App() {
 						Set Password
 					</Button>
 					<Button
-						size="small"
 						variant="outlined"
 						onClick={handleTestConnection}
 						disabled={testStatus.state === 'testing'}
@@ -156,7 +154,6 @@ export function App() {
 				<FormControlLabel
 					control={(
 						<Switch
-							size="small"
 							checked={isConnectionStringCustomized}
 							onChange={e => handleToggleCustomizeConnectionString(e.target.checked)}
 						/>
@@ -164,7 +161,6 @@ export function App() {
 					label="Customize Connection String"
 				/>
 				<TextField
-					size="small"
 					label="Connection String"
 					value={isConnectionStringCustomized ? customConnectionString : defaultConnectionString}
 					onChange={e => setCustomConnectionString(e.target.value)}
@@ -187,7 +183,7 @@ export function App() {
 						}}
 						style={{ width: 40, height: 24 }}
 					/>
-					<Button size="small" variant="outlined" color="secondary" onClick={handleRemoveBorderColor}>Remove</Button>
+					<Button variant="outlined" color="secondary" onClick={handleRemoveBorderColor}>Remove</Button>
 				</Stack>
 			</Section>
 
@@ -205,7 +201,6 @@ export function App() {
 								key={sqlImport.id}
 								control={(
 									<Checkbox
-										size="small"
 										checked={sqlImportIds.includes(sqlImport.id)}
 										onChange={e => handleToggleSqlImport(sqlImport.id, e.target.checked)}
 									/>
@@ -218,8 +213,8 @@ export function App() {
 			)}
 
 			<Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', borderTop: 1, borderColor: 'divider', pt: 2 }}>
-				<Button size="small" variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
-				<Button size="small" variant="contained" color="primary" onClick={handleSave}>Save</Button>
+				<Button variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
+				<Button variant="contained" color="primary" onClick={handleSave}>Save</Button>
 			</Stack>
 		</Stack>
 	);

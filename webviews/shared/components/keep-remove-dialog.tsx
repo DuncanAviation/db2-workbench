@@ -62,10 +62,10 @@ export function KeepRemoveDialog({ open, title, description, rows, onCancel, onC
 								sx={{ px: 1, py: 0.5, bgcolor: index % 2 === 1 ? 'action.hover' : 'transparent' }}
 								secondaryAction={
 									<Stack direction="row" spacing={0.5}>
-										<Button size="small" variant={removed ? 'text' : 'outlined'} onClick={() => toggle(row.key)}>
+										<Button variant={removed ? 'text' : 'outlined'} onClick={() => toggle(row.key)}>
 											Keep
 										</Button>
-										<Button size="small" color="error" variant={removed ? 'outlined' : 'text'} onClick={() => toggle(row.key)}>
+										<Button color="error" variant={removed ? 'outlined' : 'text'} onClick={() => toggle(row.key)}>
 											Remove
 										</Button>
 									</Stack>

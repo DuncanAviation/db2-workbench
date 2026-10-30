@@ -166,11 +166,10 @@ export function TableDataSearchDialog({ open, columns, columnLabels, initialStat
 										value={column}
 										onChange={(_, newValue) => handleColumnChange(row, newValue)}
 										sx={{ width: 260 }}
-										renderInput={inputParams => <TextField {...inputParams} label="Column" size="small" />}
+										renderInput={inputParams => <TextField {...inputParams} label="Column" />}
 									/>
 
 									<Select
-										size="small"
 										value={row.operator}
 										// value/values are deliberately left untouched here - each operator only ever
 										// reads the one it actually uses (see TableDataSearchRow), so switching between
@@ -196,7 +195,6 @@ export function TableDataSearchDialog({ open, columns, columnLabels, initialStat
 											</Stack>
 										) : (
 											<TextField
-												size="small"
 												label="Value"
 												value={row.value}
 												helperText={buildFieldHelperText(field, row.value)}
@@ -207,7 +205,7 @@ export function TableDataSearchDialog({ open, columns, columnLabels, initialStat
 										)
 									)}
 
-									<IconButton size="small" aria-label="Delete condition" onClick={() => handleDeleteRow(row.id)} sx={{ mt: 0.5 }}>
+									<IconButton aria-label="Delete condition" onClick={() => handleDeleteRow(row.id)} sx={{ mt: 0.5 }}>
 										✕
 									</IconButton>
 								</Stack>

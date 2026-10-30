@@ -182,7 +182,6 @@ export function FieldDateTimePicker({ category, anchorEl, open, value, onClose, 
 							<Stack sx={{ justifyContent: 'center', px: 2 }}>
 								<TextField
 									label="Microseconds"
-									size="small"
 									value={fractionDraft}
 									onChange={event => setFractionDraft(sanitizeFraction(event.target.value))}
 									slotProps={{ htmlInput: { maxLength: 6, inputMode: 'numeric', pattern: '[0-9]*' } }}
@@ -197,8 +196,8 @@ export function FieldDateTimePicker({ category, anchorEl, open, value, onClose, 
 					// hour/minute/second are picked as three separate clicks, so (unlike a single day pick)
 					// closing on the first one would be premature - Apply commits the whole draft.
 					<Stack direction="row" spacing={1} sx={{ p: 1, justifyContent: 'flex-end' }}>
-						<Button size="small" onClick={onClose}>Cancel</Button>
-						<Button size="small" variant="contained" onClick={handleApply}>Apply</Button>
+						<Button onClick={onClose}>Cancel</Button>
+						<Button variant="contained" onClick={handleApply}>Apply</Button>
 					</Stack>
 				)}
 			</Stack>

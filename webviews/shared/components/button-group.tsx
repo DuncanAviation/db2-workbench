@@ -58,7 +58,6 @@ export function ButtonGroup({ actions }: Props) {
 							? <SplitButton action={action} secondaryActions={action.secondaryActions} />
 							: (
 								<Button
-									size="small"
 									variant="outlined"
 									startIcon={action.icon}
 									disabled={action.disabled}
@@ -114,7 +113,7 @@ function SplitButton({ action, secondaryActions }: { action: ButtonGroupAction; 
 
 	return (
 		<>
-			<MuiButtonGroup size="small" variant="outlined">
+			<MuiButtonGroup variant="outlined">
 				<Button startIcon={action.icon} disabled={action.disabled} onClick={action.onClick}>
 					{action.label}
 				</Button>

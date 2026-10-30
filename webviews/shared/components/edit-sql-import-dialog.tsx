@@ -217,7 +217,6 @@ export function EditSqlImportDialog({
 							<>
 								<TextField
 									label="Name"
-									size="small"
 									fullWidth
 									value={name}
 									onChange={event => setName(event.target.value)}

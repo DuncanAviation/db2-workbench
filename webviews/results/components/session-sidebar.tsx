@@ -46,7 +46,7 @@ export function SessionSidebar({ sessions, activeUri }: Props) {
 							key={session.uri}
 							disablePadding
 							secondaryAction={
-								<IconButton size="small" aria-label="Session options" onClick={event => handleMenuOpen(event, session.uri)}>
+								<IconButton aria-label="Session options" onClick={event => handleMenuOpen(event, session.uri)}>
 									⋮
 								</IconButton>
 							}

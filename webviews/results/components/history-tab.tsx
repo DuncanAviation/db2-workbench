@@ -169,7 +169,6 @@ export function HistoryTab({ session, searchText, onSearchTextChange, selectedCa
 		<Stack sx={{ height: '100%', minHeight: 0 }}>
 			<Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0, p: 1 }}>
 				<TextField
-					size="small"
 					placeholder="Filter..."
 					value={searchText}
 					onChange={event => onSearchTextChange(event.target.value)}
@@ -178,7 +177,7 @@ export function HistoryTab({ session, searchText, onSearchTextChange, selectedCa
 						input: {
 							endAdornment: searchText && (
 								<InputAdornment position="end">
-									<IconButton size="small" aria-label="Clear filter" onClick={() => onSearchTextChange('')}>
+									<IconButton aria-label="Clear filter" onClick={() => onSearchTextChange('')}>
 										✕
 									</IconButton>
 								</InputAdornment>
@@ -189,7 +188,6 @@ export function HistoryTab({ session, searchText, onSearchTextChange, selectedCa
 
 				<Select
 					multiple
-					size="small"
 					value={selectedCategories}
 					onChange={handleCategoryChange}
 					renderValue={selected => renderCategorySelectValue(selected, availableCategories)}
@@ -197,7 +195,7 @@ export function HistoryTab({ session, searchText, onSearchTextChange, selectedCa
 				>
 					{availableCategories.map(category => (
 						<MenuItem key={category} value={category}>
-							<Checkbox size="small" checked={selectedCategories.includes(category)} />
+							<Checkbox checked={selectedCategories.includes(category)} />
 							<ListItemText primary={CATEGORY_LABELS[category]} />
 						</MenuItem>
 					))}
@@ -226,7 +224,6 @@ export function HistoryTab({ session, searchText, onSearchTextChange, selectedCa
 									<Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
 										{hasParameters && (
 											<ToggleButtonGroup
-												size="small"
 												exclusive
 												value={mode}
 												onChange={(_, newMode: SqlDisplayMode | null) => {
@@ -249,7 +246,7 @@ export function HistoryTab({ session, searchText, onSearchTextChange, selectedCa
 									<Alert
 										severity="warning"
 										action={(
-											<Button color="inherit" size="small" onClick={() => resultsVsCodeApi.postMessage({ command: 'checkDriverSetup' })}>
+											<Button color="inherit" onClick={() => resultsVsCodeApi.postMessage({ command: 'checkDriverSetup' })}>
 												Show Setup Options
 											</Button>
 										)}

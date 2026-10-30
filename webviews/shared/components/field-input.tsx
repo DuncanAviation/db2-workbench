@@ -85,13 +85,13 @@ export function FieldInput({ field, value, onChange, onBlur, label, required, er
 		<InputAdornment position="end">
 			{showSetNull && (
 				<Tooltip title={setNullLabel}>
-					<IconButton size="small" aria-label={setNullLabel} onClick={handleSetNull}>
+					<IconButton aria-label={setNullLabel} onClick={handleSetNull}>
 						<HideSourceIcon fontSize="small" />
 					</IconButton>
 				</Tooltip>
 			)}
 			{category && (
-				<IconButton size="small" aria-label="Open date/time picker" onClick={handleOpenPicker}>
+				<IconButton aria-label="Open date/time picker" onClick={handleOpenPicker}>
 					<PickerIcon fontSize="small" />
 				</IconButton>
 			)}

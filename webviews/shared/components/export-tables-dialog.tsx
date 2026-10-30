@@ -48,7 +48,7 @@ export function ExportTablesDialog({ open, title, initialFormat, hasFilter, onCa
 					<Typography variant="subtitle2">Format</Typography>
 					<RadioGroup value={format} onChange={event => setFormat(event.target.value as DiagramExportFormat)}>
 						{FORMAT_OPTIONS.map(option => (
-							<FormControlLabel key={option.id} value={option.id} control={<Radio size="small" />} label={option.label} />
+							<FormControlLabel key={option.id} value={option.id} control={<Radio />} label={option.label} />
 						))}
 					</RadioGroup>
 
@@ -56,8 +56,8 @@ export function ExportTablesDialog({ open, title, initialFormat, hasFilter, onCa
 						<>
 							<Typography variant="subtitle2" sx={{ pt: 1 }}>Scope</Typography>
 							<RadioGroup value={effectiveScope} onChange={event => setScope(event.target.value as 'all' | 'filtered')}>
-								<FormControlLabel value="all" control={<Radio size="small" />} label="All Tables" />
-								<FormControlLabel value="filtered" control={<Radio size="small" disabled={!hasFilter} />} label="Filtered Tables Only" disabled={!hasFilter} />
+								<FormControlLabel value="all" control={<Radio />} label="All Tables" />
+								<FormControlLabel value="filtered" control={<Radio disabled={!hasFilter} />} label="Filtered Tables Only" disabled={!hasFilter} />
 							</RadioGroup>
 						</>
 					)}

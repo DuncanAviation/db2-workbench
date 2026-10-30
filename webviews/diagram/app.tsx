@@ -1411,7 +1411,7 @@ export function App() {
 									</Box>
 								</Tooltip>
 							) : (
-								<IconButton size="small" onClick={event => setMenuAnchor(event.currentTarget)} aria-label="Diagram menu" sx={{ borderRadius: 0, color: 'primary.main' }}>
+								<IconButton onClick={event => setMenuAnchor(event.currentTarget)} aria-label="Diagram menu" sx={{ borderRadius: 0, color: 'primary.main' }}>
 									<MenuIcon fontSize="small" />
 								</IconButton>
 							)}
@@ -1448,7 +1448,7 @@ export function App() {
 								inputProps={{ 'aria-label': 'Filter tables' }}
 							/>
 							{filterText && (
-								<IconButton size="small" onClick={() => setFilterText('')} aria-label="Clear filter">
+								<IconButton onClick={() => setFilterText('')} aria-label="Clear filter">
 									<ClearIcon fontSize="small" />
 								</IconButton>
 							)}

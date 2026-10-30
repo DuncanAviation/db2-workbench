@@ -26,7 +26,7 @@ export function CopyIconButton({ text, label = 'Copy', sx }: Props) {
 
 	return (
 		<Tooltip title={label}>
-			<IconButton size="small" aria-label={label} onClick={handleCopy} sx={sx}>
+			<IconButton aria-label={label} onClick={handleCopy} sx={sx}>
 				{copied ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
 			</IconButton>
 		</Tooltip>

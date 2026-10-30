@@ -37,18 +37,18 @@ export function ExportDialog({ open, onClose, loadedRowCount, filteredRowCount, 
 					<Stack>
 						<Typography variant="subtitle2">What to export</Typography>
 						<RadioGroup value={effectiveWhat} onChange={event => setWhat(event.target.value as ExportWhat)}>
-							<FormControlLabel value="loaded" control={<Radio size="small" />} label={`Loaded results (${loadedRowCount} rows)`} />
-							{canExportFiltered && <FormControlLabel value="filtered" control={<Radio size="small" />} label={`Filtered results (${filteredRowCount} rows)`} />}
-							{canExportSelected && <FormControlLabel value="selected" control={<Radio size="small" />} label={`Selected rows (${selectedRowCount} rows)`} />}
-							{canExportAll && <FormControlLabel value="all" control={<Radio size="small" />} label="All results (fetches remaining rows first)" />}
+							<FormControlLabel value="loaded" control={<Radio />} label={`Loaded results (${loadedRowCount} rows)`} />
+							{canExportFiltered && <FormControlLabel value="filtered" control={<Radio />} label={`Filtered results (${filteredRowCount} rows)`} />}
+							{canExportSelected && <FormControlLabel value="selected" control={<Radio />} label={`Selected rows (${selectedRowCount} rows)`} />}
+							{canExportAll && <FormControlLabel value="all" control={<Radio />} label="All results (fetches remaining rows first)" />}
 						</RadioGroup>
 					</Stack>
 
 					<Stack>
 						<Typography variant="subtitle2">Format</Typography>
 						<RadioGroup row value={format} onChange={event => setFormat(event.target.value as ExportFormat)}>
-							<FormControlLabel value="csv" control={<Radio size="small" />} label="CSV" />
-							<FormControlLabel value="json" control={<Radio size="small" />} label="JSON" />
+							<FormControlLabel value="csv" control={<Radio />} label="CSV" />
+							<FormControlLabel value="json" control={<Radio />} label="JSON" />
 						</RadioGroup>
 					</Stack>
 				</Stack>

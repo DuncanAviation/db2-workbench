@@ -109,7 +109,6 @@ function StoredBody({ routine, ddlError, onRefreshDdl }: StoredBodyProps) {
 		<Stack spacing={1} sx={{ p: 2, height: '100%', minHeight: 0, boxSizing: 'border-box' }}>
 			<Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
 				<ToggleButtonGroup
-					size="small"
 					exclusive
 					value={mode}
 					onChange={(_, value: DefinitionMode | null) => value && setMode(value)}

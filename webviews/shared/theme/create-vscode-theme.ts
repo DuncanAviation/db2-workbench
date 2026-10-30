@@ -134,7 +134,22 @@ export function createVsCodeTheme(themeKind: VsCodeThemeKind): Theme {
 					},
 				},
 			},
+			// Every control defaults to MUI's small size, the density VS Code's own UI uses (its buttons
+			// and inputs are about 26px tall; MUI's medium is 37-40px). Set here rather than per component
+			// so every webview gets one density, including controls added later. A control that really
+			// needs another size says so with its own size prop.
+			MuiTextField: { defaultProps: { size: 'small' } },
+			MuiFormControl: { defaultProps: { size: 'small' } },
+			MuiInputBase: { defaultProps: { size: 'small' } },
+			MuiAutocomplete: { defaultProps: { size: 'small' } },
+			MuiCheckbox: { defaultProps: { size: 'small' } },
+			MuiRadio: { defaultProps: { size: 'small' } },
+			MuiSwitch: { defaultProps: { size: 'small' } },
+			MuiIconButton: { defaultProps: { size: 'small' } },
+			MuiButtonGroup: { defaultProps: { size: 'small' } },
+			MuiToggleButtonGroup: { defaultProps: { size: 'small' } },
 			MuiButton: {
+				defaultProps: { size: 'small' },
 				styleOverrides: {
 					// `secondary.main` maps to --vscode-button-secondaryBackground, which is meant
 					// for contained button backgrounds, not text. Outlined buttons need a color

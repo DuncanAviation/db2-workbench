@@ -241,7 +241,6 @@ export function ViewImportsDialog({ open, imports, onCancel, onApply, onEdit, on
 					) : (
 						<Stack spacing={1}>
 							<TextField
-								size="small"
 								fullWidth
 								placeholder="Filter..."
 								value={filterText}
@@ -250,7 +249,7 @@ export function ViewImportsDialog({ open, imports, onCancel, onApply, onEdit, on
 									input: {
 										endAdornment: filterText && (
 											<InputAdornment position="end">
-												<IconButton size="small" aria-label="Clear filter" onClick={() => setFilterText('')}>
+												<IconButton aria-label="Clear filter" onClick={() => setFilterText('')}>
 													✕
 												</IconButton>
 											</InputAdornment>
@@ -275,12 +274,11 @@ export function ViewImportsDialog({ open, imports, onCancel, onApply, onEdit, on
 								return (
 									<Box key={summary.importId} sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
 										<Stack direction="row" sx={{ alignItems: 'center', gap: 0.5, px: 0.5, py: 0.5 }}>
-											<IconButton size="small" aria-label={expanded ? 'Collapse import' : 'Expand import'} onClick={() => toggleCollapsed(summary.importId)}>
+											<IconButton aria-label={expanded ? 'Collapse import' : 'Expand import'} onClick={() => toggleCollapsed(summary.importId)}>
 												{expanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
 											</IconButton>
 
 											<Checkbox
-												size="small"
 												checked={checkedCount > 0 && checkedCount === keys.length}
 												indeterminate={checkedCount > 0 && checkedCount < keys.length}
 												onChange={event => toggleImport(summary, event.target.checked)}
@@ -302,10 +300,10 @@ export function ViewImportsDialog({ open, imports, onCancel, onApply, onEdit, on
 											it, just the rows a file or a paste produced once. */}
 											{summary.saved && (
 												<>
-													<IconButton size="small" title="Run this import again" aria-label={`Refresh ${summary.sourceLabel}`} onClick={() => onRefresh(summary.importId)}>
+													<IconButton title="Run this import again" aria-label={`Refresh ${summary.sourceLabel}`} onClick={() => onRefresh(summary.importId)}>
 														<RefreshIcon fontSize="small" />
 													</IconButton>
-													<IconButton size="small" title="Edit this import" aria-label={`Edit ${summary.sourceLabel}`} onClick={() => onEdit(summary.importId)}>
+													<IconButton title="Edit this import" aria-label={`Edit ${summary.sourceLabel}`} onClick={() => onEdit(summary.importId)}>
 														<EditIcon fontSize="small" />
 													</IconButton>
 												</>
@@ -313,7 +311,7 @@ export function ViewImportsDialog({ open, imports, onCancel, onApply, onEdit, on
 
 											{/* Removal is offered for every import, saved or not - Apply no longer takes anything off
 											this list, so this button is the only way off it. */}
-											<IconButton size="small" color="error" title="Remove this import" aria-label={`Remove ${summary.sourceLabel}`} onClick={() => requestRemoval(summary)}>
+											<IconButton color="error" title="Remove this import" aria-label={`Remove ${summary.sourceLabel}`} onClick={() => requestRemoval(summary)}>
 												<DeleteIcon fontSize="small" />
 											</IconButton>
 										</Stack>
@@ -330,7 +328,6 @@ export function ViewImportsDialog({ open, imports, onCancel, onApply, onEdit, on
 															sx={{ alignItems: 'center', gap: 0.5, pl: 4, pr: 1, bgcolor: index % 2 === 1 ? 'action.hover' : 'transparent' }}
 														>
 															<Checkbox
-																size="small"
 																checked={checkedKeys.has(key)}
 																onChange={() => toggleTable(key)}
 																slotProps={{ input: { 'aria-label': `Apply ${table.schema}.${table.table}` } }}
@@ -404,7 +401,7 @@ export function ViewImportsDialog({ open, imports, onCancel, onApply, onEdit, on
 function RemovalOption({ value, label, caption }: { value: RemovalChoice; label: string; caption: string }) {
 	return (
 		<Box>
-			<FormControlLabel value={value} control={<Radio size="small" />} label={label} />
+			<FormControlLabel value={value} control={<Radio />} label={label} />
 			<Typography variant="caption" color="text.secondary" sx={{ display: 'block', pl: 4 }}>
 				{caption}
 			</Typography>
