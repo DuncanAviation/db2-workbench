@@ -649,7 +649,7 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 	if(collapsed) {
 		return (
 			<Stack sx={{ height: '100%', flexShrink: 0, borderRight: 1, borderColor: 'divider', alignItems: 'center', pt: 1 }}>
-				<IconButton size="small" aria-label="Expand schema tree" onClick={() => setCollapsed(false)}>
+				<IconButton aria-label="Expand schema tree" onClick={() => setCollapsed(false)}>
 					<ChevronRightIcon fontSize="small" />
 				</IconButton>
 			</Stack>
@@ -676,7 +676,7 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 
 				{!loading && menuItems && menuItems.length > 0 && (
 					<>
-						<IconButton size="small" aria-label="Schema tree options" onClick={handleMenuOpen}>
+						<IconButton aria-label="Schema tree options" onClick={handleMenuOpen}>
 							<MoreVertIcon fontSize="small" />
 						</IconButton>
 
@@ -688,14 +688,13 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 					</>
 				)}
 
-				<IconButton size="small" aria-label="Collapse schema tree" onClick={() => setCollapsed(true)}>
+				<IconButton aria-label="Collapse schema tree" onClick={() => setCollapsed(true)}>
 					<ChevronLeftIcon fontSize="small" />
 				</IconButton>
 			</Stack>
 
 			<Box sx={{ px: 1, pb: 1, pt: 0.5, flexShrink: 0 }}>
 				<TextField
-					size="small"
 					fullWidth
 					placeholder="Filter..."
 					value={filterText}
@@ -704,7 +703,7 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 						input: {
 							endAdornment: filterText && (
 								<InputAdornment position="end">
-									<IconButton size="small" aria-label="Clear filter" onClick={() => onFilterTextChange('')}>
+									<IconButton aria-label="Clear filter" onClick={() => onFilterTextChange('')}>
 										✕
 									</IconButton>
 								</InputAdornment>

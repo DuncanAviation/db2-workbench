@@ -67,7 +67,6 @@ export function DataEditSettingsDialog({ open, settings, onCancel, onSave }: Pro
 						<Stack direction="row" spacing={2} sx={{ pt: '0.5em' }}>
 							<TextField
 								select
-								size="small"
 								fullWidth
 								label="Columns with a table default"
 								value={draft.columnsWithTableDefault}
@@ -78,7 +77,6 @@ export function DataEditSettingsDialog({ open, settings, onCancel, onSave }: Pro
 							</TextField>
 							<TextField
 								select
-								size="small"
 								fullWidth
 								label="Nullable columns"
 								value={draft.nullableColumns}
@@ -104,7 +102,6 @@ export function DataEditSettingsDialog({ open, settings, onCancel, onSave }: Pro
 										<FieldInput
 											field={{ dataType: type }}
 											variant="standard"
-											size="small"
 											fullWidth
 											hideHelperText
 											value={value}
@@ -115,7 +112,7 @@ export function DataEditSettingsDialog({ open, settings, onCancel, onSave }: Pro
 										<Box>
 											{isOwn && (
 												<Tooltip title="Reset to App Default">
-													<IconButton size="small" aria-label={`Reset ${type} to App Default`} onClick={() => resetTypeDefault(type)}>
+													<IconButton aria-label={`Reset ${type} to App Default`} onClick={() => resetTypeDefault(type)}>
 														<RestartAltIcon fontSize="small" />
 													</IconButton>
 												</Tooltip>

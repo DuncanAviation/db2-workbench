@@ -123,14 +123,14 @@ function OverridesSchemaListDialog({ open, schemaList, onCancel, onSave }: Overr
 							sx={{ px: 1, py: 0.5, bgcolor: index % 2 === 1 ? 'action.hover' : 'transparent' }}
 							secondaryAction={
 								row.deleted ? (
-									<Button size="small" onClick={() => toggleDeleted(row.name)}>Undo</Button>
+									<Button onClick={() => toggleDeleted(row.name)}>Undo</Button>
 								) : (
 									<Stack direction="row" spacing={0.5}>
-										<Button size="small" onClick={() => toggleHidden(row.name)}>
+										<Button onClick={() => toggleHidden(row.name)}>
 											{row.hidden ? 'Show' : 'Hide'}
 										</Button>
 										{row.added && (
-											<Button size="small" color="error" onClick={() => toggleDeleted(row.name)}>Delete</Button>
+											<Button color="error" onClick={() => toggleDeleted(row.name)}>Delete</Button>
 										)}
 									</Stack>
 								)
@@ -153,14 +153,13 @@ function OverridesSchemaListDialog({ open, schemaList, onCancel, onSave }: Overr
 					{newRows.map(row => (
 						<Stack key={row.id} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
 							<TextField
-								size="small"
 								autoFocus
 								fullWidth
 								placeholder="Schema name"
 								value={row.value}
 								onChange={event => updateNewRow(row.id, event.target.value)}
 							/>
-							<IconButton size="small" aria-label="Remove schema" onClick={() => handleDeleteNewRow(row.id)}>
+							<IconButton aria-label="Remove schema" onClick={() => handleDeleteNewRow(row.id)}>
 								✕
 							</IconButton>
 						</Stack>
@@ -321,19 +320,19 @@ function LiveLibraryListDialog({ open, libraryList, applying, error, checkLibrar
 									{/* Each span keeps its tooltip working while the button is disabled, which MUI needs. */}
 									<Tooltip title="Move up">
 										<span>
-											<IconButton size="small" aria-label={`Move ${row.name} up`} disabled={applying || !canMove(index, -1)} onClick={() => move(index, -1)}>
+											<IconButton aria-label={`Move ${row.name} up`} disabled={applying || !canMove(index, -1)} onClick={() => move(index, -1)}>
 												<ArrowUpwardIcon fontSize="small" />
 											</IconButton>
 										</span>
 									</Tooltip>
 									<Tooltip title="Move down">
 										<span>
-											<IconButton size="small" aria-label={`Move ${row.name} down`} disabled={applying || !canMove(index, 1)} onClick={() => move(index, 1)}>
+											<IconButton aria-label={`Move ${row.name} down`} disabled={applying || !canMove(index, 1)} onClick={() => move(index, 1)}>
 												<ArrowDownwardIcon fontSize="small" />
 											</IconButton>
 										</span>
 									</Tooltip>
-									<Button size="small" color="error" aria-label={`Remove ${row.name}`} disabled={applying} onClick={() => remove(index)}>Remove</Button>
+									<Button color="error" aria-label={`Remove ${row.name}`} disabled={applying} onClick={() => remove(index)}>Remove</Button>
 								</Stack>
 							)}
 						>
@@ -347,7 +346,6 @@ function LiveLibraryListDialog({ open, libraryList, applying, error, checkLibrar
 
 				<Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'flex-start' }}>
 					<TextField
-						size="small"
 						fullWidth
 						placeholder="Library name"
 						slotProps={{ htmlInput: { 'aria-label': 'Library name' } }}

@@ -168,7 +168,7 @@ export function ImportSchemaDialog({ open, onCancel, onImportFile, onImportText,
 							<Typography variant="subtitle2">Format</Typography>
 							<RadioGroup row value={format} onChange={event => setFormat(event.target.value as ImportSource)}>
 								{FORMAT_OPTIONS.map(option => (
-									<FormControlLabel key={option.id} value={option.id} control={<Radio size="small" />} label={option.label} />
+									<FormControlLabel key={option.id} value={option.id} control={<Radio />} label={option.label} />
 								))}
 							</RadioGroup>
 						</Stack>
@@ -190,7 +190,6 @@ export function ImportSchemaDialog({ open, onCancel, onImportFile, onImportText,
 						<>
 							<TextField
 								label="Name"
-								size="small"
 								fullWidth
 								value={name}
 								onChange={event => setName(event.target.value)}

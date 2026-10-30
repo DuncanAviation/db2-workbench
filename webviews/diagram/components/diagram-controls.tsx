@@ -19,17 +19,17 @@ export function DiagramControls() {
 			overflow: 'hidden'
 		}}>
 			<Tooltip title="Zoom in" placement="left">
-				<IconButton size="small" onClick={() => void zoomIn()} sx={BUTTON_SX}>
+				<IconButton onClick={() => void zoomIn()} sx={BUTTON_SX}>
 					<ZoomInIcon fontSize="small" />
 				</IconButton>
 			</Tooltip>
 			<Tooltip title="Zoom out" placement="left">
-				<IconButton size="small" onClick={() => void zoomOut()} sx={BUTTON_SX}>
+				<IconButton onClick={() => void zoomOut()} sx={BUTTON_SX}>
 					<ZoomOutIcon fontSize="small" />
 				</IconButton>
 			</Tooltip>
 			<Tooltip title="Fit view" placement="left">
-				<IconButton size="small" onClick={() => void fitView({padding: 0.15})} sx={BUTTON_SX}>
+				<IconButton onClick={() => void fitView({padding: 0.15})} sx={BUTTON_SX}>
 					<FitScreenIcon fontSize="small" />
 				</IconButton>
 			</Tooltip>

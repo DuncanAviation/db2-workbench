@@ -96,7 +96,7 @@ export function ConnectionTab({ session }: Props) {
 						// The span keeps the tooltip working while the button is disabled, which MUI needs.
 						<Tooltip title={busy ? 'The schema list can\'t be edited while a statement is running' : 'Edit schema list'}>
 							<span>
-								<IconButton size="small" aria-label="Edit schema list" onClick={openDialog} disabled={busy}>
+								<IconButton aria-label="Edit schema list" onClick={openDialog} disabled={busy}>
 									<EditIcon fontSize="small" />
 								</IconButton>
 							</span>

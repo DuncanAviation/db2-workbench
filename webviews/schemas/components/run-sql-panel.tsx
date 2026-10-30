@@ -159,7 +159,7 @@ export function RunSqlPanel({ statements, statementStatuses, statementErrors, is
 	if(collapsed) {
 		return (
 			<Stack sx={{ flexShrink: 0, borderLeft: 1, borderColor: 'divider', alignItems: 'center', pt: 1 }}>
-				<IconButton size="small" aria-label="Expand run SQL panel" onClick={onToggleCollapsed}>
+				<IconButton aria-label="Expand run SQL panel" onClick={onToggleCollapsed}>
 					<ChevronLeftIcon fontSize="small" />
 				</IconButton>
 			</Stack>
@@ -170,7 +170,7 @@ export function RunSqlPanel({ statements, statementStatuses, statementErrors, is
 		<Stack sx={{ width: resizable?.width ?? DEFAULT_RUN_SQL_PANEL_WIDTH, flexShrink: 0, minHeight: 0, borderLeft: 1, borderColor: 'divider', overflow: 'hidden' }}>
 			<Stack direction="row" sx={{ p: 1, flexShrink: 0, alignItems: 'center', justifyContent: 'space-between' }}>
 				<Typography variant="subtitle1">Run SQL</Typography>
-				<IconButton size="small" aria-label="Collapse run SQL panel" onClick={onToggleCollapsed}>
+				<IconButton aria-label="Collapse run SQL panel" onClick={onToggleCollapsed}>
 					<ChevronRightIcon fontSize="small" />
 				</IconButton>
 			</Stack>
@@ -200,7 +200,7 @@ export function RunSqlPanel({ statements, statementStatuses, statementErrors, is
 											<Chip size="small" label={KIND_LABELS[kind]} color={KIND_COLORS[kind]} />
 											<StatusIcon status={status} />
 										</Stack>
-										<IconButton size="small" aria-label="Discard statement" disabled={isRunning || done} onClick={() => onDeleteStatement(statement.id)}>
+										<IconButton aria-label="Discard statement" disabled={isRunning || done} onClick={() => onDeleteStatement(statement.id)}>
 											✕
 										</IconButton>
 									</Stack>

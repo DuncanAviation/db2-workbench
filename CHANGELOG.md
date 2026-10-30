@@ -15,6 +15,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 ### Changed
 
 - **A tidier connection editor.** Fields are grouped into Connection, Sign-on, Connection String and Results sections, with compact fields and buttons, and the connection details sit in two columns.
+- **One control size everywhere.** Fields, checkboxes and buttons use the same compact size in every panel and dialog. The SQL Formatting editor, Add Row and Edit Row, query parameters and the Create Index dialog had larger fields, and most dialogs had larger buttons.
 
 ### Fixed
 

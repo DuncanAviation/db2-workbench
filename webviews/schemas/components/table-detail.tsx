@@ -166,7 +166,7 @@ export function TableDetail({ entry, currentSortSequence, currentSortSequenceLib
 
 				{badge && <ImportBadge kind={badge} tooltip={BADGE_HELP_TEXT[badge]} />}
 
-				<IconButton size="small" aria-label="Table options" onClick={handleMenuOpen}>
+				<IconButton aria-label="Table options" onClick={handleMenuOpen}>
 					<MoreVertIcon fontSize="small" />
 				</IconButton>
 

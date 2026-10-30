@@ -116,7 +116,7 @@ export function SqlImportSaveOptions({ save, onChangeSave, linksOnly, connection
 		>
 			{!linksOnly && (
 				<FormControlLabel
-					control={<Checkbox size="small" checked={save} disabled={disabled} onChange={event => onChangeSave(event.target.checked)} />}
+					control={<Checkbox checked={save} disabled={disabled} onChange={event => onChangeSave(event.target.checked)} />}
 					label="Save this import and re-run it whenever a linked connection opens"
 				/>
 			)}
@@ -132,7 +132,6 @@ export function SqlImportSaveOptions({ save, onChangeSave, linksOnly, connection
 							key={connection.id}
 							control={(
 								<Checkbox
-									size="small"
 									disabled={disabled}
 									checked={connectionIds.includes(connection.id)}
 									onChange={event => toggleConnection(connection.id, event.target.checked)}
@@ -204,7 +203,6 @@ export function SqlImportMappingStep({ sections, mappings, onChange, disabled }:
 
 									<TextField
 										select
-										size="small"
 										fullWidth
 										disabled={disabled}
 										error={!!sectionMapping[resultColumn] && duplicateTargets.has(sectionMapping[resultColumn])}

@@ -59,7 +59,7 @@ export function AddMissingTargetsDialog({ target, onCancel, onAdd }: Props) {
 					{(target?.targets ?? []).map((row, index) => (
 						<ListItem key={targetKey(row)} sx={{ px: 2, py: 0, bgcolor: index % 2 === 1 ? 'action.hover' : 'transparent' }}>
 							<FormControlLabel
-								control={<Checkbox size="small" checked={selected.has(targetKey(row))} onChange={() => toggle(targetKey(row))} />}
+								control={<Checkbox checked={selected.has(targetKey(row))} onChange={() => toggle(targetKey(row))} />}
 								label={<Typography sx={{ fontSize: '0.875rem' }}>{row.targetSchema}.{row.targetTable}</Typography>}
 							/>
 						</ListItem>

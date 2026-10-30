@@ -788,7 +788,6 @@ export function TableDataTab({ table, readOnly, editMode: sessionEditMode, onEnt
 						<FieldInput
 							field={column}
 							variant="standard"
-							size="small"
 							fullWidth
 							hideHelperText
 							alignNumericRight
