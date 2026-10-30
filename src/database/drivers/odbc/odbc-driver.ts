@@ -21,6 +21,8 @@ export class OdbcDriver implements DbDriver {
 	static readonly ID = 'odbc';
 	static readonly DRIVER_NOT_FOUND_STATE = 'IM002';
 	static readonly DRIVER_NOT_FOUND_MESSAGE_FRAGMENT = 'data source name not found and no default driver specified';
+	static readonly INVALID_AUTHORIZATION_STATE = '28000';
+	static readonly SIGN_ON_MESSAGE_PATTERN = /\bCWBSY\d{4}\b/i;
 
 	static readonly DEFAULT_CONNECTION_STRING =
 		`Driver={IBM i Access ODBC Driver}; ` +
@@ -82,6 +84,26 @@ export class OdbcDriver implements DbDriver {
 		}
 
 		return !!errorLike?.message?.toLowerCase().includes(OdbcDriver.DRIVER_NOT_FOUND_MESSAGE_FRAGMENT);
+	}
+
+	/**
+	 * The IBM i Access driver reports a refused sign-on as SQLSTATE 08001 (the same state as an
+	 * unreachable host), so the state alone can't tell them apart. The message names the cause: a
+	 * CWBSY message comes from the client's security component, which only reports sign-on failures
+	 * (CWBSY0002 wrong password, CWBSY0003 expired, CWBSY0004 disabled, CWBSY1006 unknown user), while
+	 * an unreachable host is a CWBCO communications message. 28000 is the standard ODBC state for a
+	 * rejected sign-on, kept for a driver that reports it.
+	 */
+	isAuthenticationError(error: unknown): boolean {
+		let errorLike = <{ message?: string }>error;
+		let details = DbErrorUtils.extractDriverErrors(error) ?? [];
+
+		if(details.some(detail => detail.state === OdbcDriver.INVALID_AUTHORIZATION_STATE)) {
+			return true;
+		}
+
+		return [errorLike?.message, ...details.map(detail => detail.message)]
+			.some(message => OdbcDriver.SIGN_ON_MESSAGE_PATTERN.test(message ?? ''));
 	}
 
 	withSortSequence(options: DbDriver.ConnectOptions, target: SortSequenceUtils.Identity, currentLanguageId: string): DbDriver.ConnectOptions {

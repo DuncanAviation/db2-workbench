@@ -1,9 +1,13 @@
-import { Disposable } from 'vscode';
 import { Extension } from './extension.js';
 
 import { Nullable } from './utils/nullable.js';
 
-export class Secrets implements Disposable {
+/**
+ * Connection passwords, held in VS Code's SecretStorage (encrypted by the OS) so they survive a
+ * restart. A password is removed only when a connect proves it wrong - see
+ * DbConnections.establishConnection() - or replaced from the connection editor's Set Password.
+ */
+export class Secrets {
 	constructor(private extension: Extension) {}
 
 	private getKey(options: Secrets.StoreKey): string {
@@ -28,17 +32,7 @@ export class Secrets implements Disposable {
 
 	async delete(options: Secrets.StoreKey): Promise<void> {
 		let key = this.getKey(options);
-		this.extension.context.secrets.delete(key);
-	}
-
-	async dispose(): Promise<void> {
-		let keys = await this.extension.context.secrets.keys();
-
-		if(keys.length === 0) {
-			return;
-		}
-
-		await Promise.all(keys.map(key => this.extension.context.secrets.delete(key)));
+		await this.extension.context.secrets.delete(key);
 	}
 }
 

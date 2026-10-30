@@ -32,7 +32,15 @@ export interface TestConnectionMessage {
 	connection: ConnectionConfig;
 }
 
-export type ConnectionEditorOutboundMessage = SaveConnectionMessage | CancelEditMessage | TestConnectionMessage;
+// Takes the form's host and user name as typed rather than a saved connection: passwords are stored by
+// host and user name, so a new connection can have one set before it is saved or tested.
+export interface SetPasswordMessage {
+	command: 'setPassword';
+	host: string;
+	userName: string;
+}
+
+export type ConnectionEditorOutboundMessage = SaveConnectionMessage | CancelEditMessage | TestConnectionMessage | SetPasswordMessage;
 
 export interface TestConnectionResultMessage {
 	command: 'testConnectionResult';
@@ -41,4 +49,10 @@ export interface TestConnectionResultMessage {
 	driverErrors?: DbErrorUtils.DbErrorDetail[];
 }
 
-export type ConnectionEditorInboundMessage = TestConnectionResultMessage;
+// Sent only once a new password is stored. Cancelling the prompt sends nothing, since nothing changed.
+export interface PasswordSetMessage {
+	command: 'passwordSet';
+	message: string;
+}
+
+export type ConnectionEditorInboundMessage = TestConnectionResultMessage | PasswordSetMessage;

@@ -8,6 +8,19 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 
 ## [Unreleased]
 
+### Added
+
+- **Set Password.** The connection editor has a Set Password button for when your password changes on the host. It asks for the new password and replaces the stored one; cancelling leaves the stored password as it was. It works on a new connection too, before it is saved or tested.
+
+### Changed
+
+- **A tidier connection editor.** Fields are grouped into Connection, Sign-on, Connection String and Results sections, with compact fields and buttons, and the connection details sit in two columns.
+
+### Fixed
+
+- Stored passwords are no longer cleared when the extension shuts down. The clear didn't always finish, which is why a password was sometimes asked for again after a restart and sometimes not.
+- A connection that fails because the host can't be reached no longer deletes the stored password or asks for it again. Only a refused sign-on (wrong, expired or disabled) does.
+
 ## [0.2.0] - 2026-10-23
 
 First release on the Marketplace's stable channel.

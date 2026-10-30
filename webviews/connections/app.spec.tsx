@@ -236,6 +236,48 @@ describe('connection editor webview', () => {
 		});
 	});
 
+	describe('set password', () => {
+		function setPasswordButton(): HTMLButtonElement {
+			return screen.getByRole('button', { name: 'Set Password' }) as HTMLButtonElement;
+		}
+
+		it('is offered on a new connection once it has a host and user name', async () => {
+			let user = userEvent.setup();
+			renderEditor(NEW);
+
+			expect(setPasswordButton().disabled).toBe(true);
+			await user.type(screen.getByRole('textbox', { name: 'Host' }), 'NEWHOST');
+			expect(setPasswordButton().disabled).toBe(true);
+			await user.type(screen.getByRole('textbox', { name: 'User Name' }), 'NEWUSER');
+			expect(setPasswordButton().disabled).toBe(false);
+		});
+
+		// Passwords are stored by host and user name, so the host needs the values as typed, saved or not.
+		// The password itself is prompted for by the host and never passes through the webview.
+		it('posts the host and user name as typed, and nothing else', async () => {
+			let user = userEvent.setup();
+			renderEditor(SAVED);
+
+			await user.clear(screen.getByRole('textbox', { name: 'User Name' }));
+			await user.type(screen.getByRole('textbox', { name: 'User Name' }), 'OTHERUSER');
+			await user.click(setPasswordButton());
+
+			expect(postedMessages<ConnectionEditorOutboundMessage>()).toEqual([{ command: 'setPassword', host: 'PRODHOST', userName: 'OTHERUSER' }]);
+		});
+
+		it('says so once the host has stored the new password', async () => {
+			let user = userEvent.setup();
+			renderEditor(SAVED);
+
+			await user.click(setPasswordButton());
+			expect(screen.queryByRole('alert')).toBeNull();
+
+			postFromHost<ConnectionEditorInboundMessage>({ command: 'passwordSet', message: 'Password set for TESTUSER@PRODHOST.' });
+
+			expect(screen.getByRole('alert').textContent).toBe('Password set for TESTUSER@PRODHOST.');
+		});
+	});
+
 	it('posts cancelEdit on Cancel, and nothing else', async () => {
 		let user = userEvent.setup();
 		renderEditor(SAVED);

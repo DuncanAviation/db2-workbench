@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Alert, Button, Checkbox, CircularProgress, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
+import { type ReactNode, useEffect, useState } from 'react';
+import { Alert, Box, Button, Checkbox, CircularProgress, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
 import { StringUtils } from '../../src/utils/string-utils.js';
 import type { ConnectionEditorInboundMessage } from '../../src/webview-messages/connection-editor-messages';
 import type { DbErrorUtils } from '../../src/utils/db-error-utils';
@@ -28,6 +28,7 @@ export function App() {
 	const [resultBorderColorCleared, setResultBorderColorCleared] = useState(StringUtils.isBlank(config.resultBorderColor));
 	const [testStatus, setTestStatus] = useState<TestConnectionStatus>({ state: 'idle' });
 	const [sqlImportIds, setSqlImportIds] = useState<string[]>(config.sqlImportIds ?? []);
+	const [passwordSetMessage, setPasswordSetMessage] = useState<string>();
 
 	const title = config.id ? 'Edit Connection' : 'New Connection';
 
@@ -35,6 +36,8 @@ export function App() {
 		function onMessage(event: MessageEvent<ConnectionEditorInboundMessage>) {
 			if (event.data.command === 'testConnectionResult') {
 				setTestStatus({ state: 'done', success: event.data.success, message: event.data.message, driverErrors: event.data.driverErrors });
+			} else if (event.data.command === 'passwordSet') {
+				setPasswordSetMessage(event.data.message);
 			}
 		}
 
@@ -99,19 +102,61 @@ export function App() {
 		});
 	}
 
+	// The host prompts for the password itself, so it never passes through this webview. Nothing is
+	// changed until a new one is entered there.
+	function handleSetPassword() {
+		setPasswordSetMessage(undefined);
+		connectionEditorVsCodeApi.postMessage({ command: 'setPassword', host, userName });
+	}
+
 	return (
-		<Stack spacing={2} sx={{ p: 3, maxWidth: 480 }}>
+		<Stack spacing={3} sx={{ p: 3, maxWidth: 640 }}>
 			<Typography variant="h5">{title}</Typography>
 
-			<TextField label="Name" value={name} onChange={e => setName(e.target.value)} required autoComplete="off" />
-			<TextField label="Host" value={host} onChange={e => setHost(e.target.value)} required autoComplete="off" />
-			<TextField label="User Name" value={userName} onChange={e => setUserName(e.target.value)} required autoComplete="off" />
-			<TextField label="Default Table Schema" value={defaultTableSchema} onChange={e => setDefaultTableSchema(e.target.value)} required autoComplete="off" />
+			<Section title="Connection">
+				<Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 2 }}>
+					<TextField size="small" label="Name" value={name} onChange={e => setName(e.target.value)} required autoComplete="off" />
+					<TextField size="small" label="Default Table Schema" value={defaultTableSchema} onChange={e => setDefaultTableSchema(e.target.value)} required autoComplete="off" />
+					<TextField size="small" label="Host" value={host} onChange={e => setHost(e.target.value)} required autoComplete="off" />
+					<TextField size="small" label="User Name" value={userName} onChange={e => setUserName(e.target.value)} required autoComplete="off" />
+				</Box>
+			</Section>
 
-			<Stack spacing={0.5}>
+			<Section title="Sign-on">
+				<Stack direction="row" spacing={1}>
+					<Button
+						size="small"
+						variant="outlined"
+						onClick={handleSetPassword}
+						disabled={StringUtils.isBlank(host) || StringUtils.isBlank(userName)}
+						sx={{ whiteSpace: 'nowrap' }}
+					>
+						Set Password
+					</Button>
+					<Button
+						size="small"
+						variant="outlined"
+						onClick={handleTestConnection}
+						disabled={testStatus.state === 'testing'}
+						startIcon={testStatus.state === 'testing' ? <CircularProgress size={14} /> : undefined}
+						sx={{ whiteSpace: 'nowrap' }}
+					>
+						Test Connection
+					</Button>
+				</Stack>
+
+				{passwordSetMessage && <Alert severity="success">{passwordSetMessage}</Alert>}
+				{testStatus.state === 'done' && (
+					<Alert severity={testStatus.success ? 'success' : 'warning'}>{testStatus.message}</Alert>
+				)}
+				{testStatus.state === 'done' && testStatus.driverErrors && <DbErrorTable driverErrors={testStatus.driverErrors} />}
+			</Section>
+
+			<Section title="Connection String">
 				<FormControlLabel
 					control={(
 						<Switch
+							size="small"
 							checked={isConnectionStringCustomized}
 							onChange={e => handleToggleCustomizeConnectionString(e.target.checked)}
 						/>
@@ -119,6 +164,7 @@ export function App() {
 					label="Customize Connection String"
 				/>
 				<TextField
+					size="small"
 					label="Connection String"
 					value={isConnectionStringCustomized ? customConnectionString : defaultConnectionString}
 					onChange={e => setCustomConnectionString(e.target.value)}
@@ -126,68 +172,67 @@ export function App() {
 					multiline
 					minRows={3}
 				/>
-			</Stack>
+			</Section>
 
-			<Stack spacing={1}>
-				<Typography variant="body2">Results Border Color</Typography>
+			<Section title="Results">
 				<Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+					<Typography variant="body2">Border Color</Typography>
 					<input
 						type="color"
+						aria-label="Results Border Color"
 						value={resultBorderColor}
 						onChange={e => {
 							setResultBorderColor(e.target.value);
 							setResultBorderColorCleared(false);
 						}}
-						style={{ width: 50, height: 30 }}
+						style={{ width: 40, height: 24 }}
 					/>
-					<Button variant="outlined" color="secondary" onClick={handleRemoveBorderColor}>Remove</Button>
+					<Button size="small" variant="outlined" color="secondary" onClick={handleRemoveBorderColor}>Remove</Button>
 				</Stack>
-			</Stack>
+			</Section>
 
 			{/* Hidden entirely when nothing is saved rather than shown empty: a user who has never made a SQL
 			import has no reason to be told this control exists. */}
 			{sqlImports.length > 0 && (
-				<Stack spacing={0.5}>
-					<Typography variant="body2">SQL Schema Imports</Typography>
+				<Section title="SQL Schema Imports">
 					<Typography variant="caption" sx={{ color: 'text.secondary' }}>
 						Run against this connection whenever it opens.
 					</Typography>
 
-					{sqlImports.map(sqlImport => (
-						<FormControlLabel
-							key={sqlImport.id}
-							control={(
-								<Checkbox
-									size="small"
-									checked={sqlImportIds.includes(sqlImport.id)}
-									onChange={e => handleToggleSqlImport(sqlImport.id, e.target.checked)}
-								/>
-							)}
-							label={sqlImport.name}
-						/>
-					))}
-				</Stack>
+					<Stack>
+						{sqlImports.map(sqlImport => (
+							<FormControlLabel
+								key={sqlImport.id}
+								control={(
+									<Checkbox
+										size="small"
+										checked={sqlImportIds.includes(sqlImport.id)}
+										onChange={e => handleToggleSqlImport(sqlImport.id, e.target.checked)}
+									/>
+								)}
+								label={sqlImport.name}
+							/>
+						))}
+					</Stack>
+				</Section>
 			)}
 
-			<Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'center' }}>
-				<Button
-					variant="outlined"
-					onClick={handleTestConnection}
-					disabled={testStatus.state === 'testing'}
-					startIcon={testStatus.state === 'testing' ? <CircularProgress size={16} /> : undefined}
-				>
-					Test Connection
-				</Button>
-				<Stack direction="row" spacing={1} sx={{ flexGrow: 1, justifyContent: 'flex-end' }}>
-					<Button variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
-					<Button variant="contained" color="primary" onClick={handleSave}>Save</Button>
-				</Stack>
+			<Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', borderTop: 1, borderColor: 'divider', pt: 2 }}>
+				<Button size="small" variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
+				<Button size="small" variant="contained" color="primary" onClick={handleSave}>Save</Button>
 			</Stack>
+		</Stack>
+	);
+}
 
-			{testStatus.state === 'done' && (
-				<Alert severity={testStatus.success ? 'success' : 'warning'}>{testStatus.message}</Alert>
-			)}
-			{testStatus.state === 'done' && testStatus.driverErrors && <DbErrorTable driverErrors={testStatus.driverErrors} />}
+/** A titled group of fields, ruled off from the one above. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+	return (
+		<Stack spacing={1.5} component="section" aria-label={title}>
+			<Typography variant="subtitle2" sx={{ color: 'text.secondary', borderBottom: 1, borderColor: 'divider', pb: 0.5 }}>
+				{title}
+			</Typography>
+			{children}
 		</Stack>
 	);
 }

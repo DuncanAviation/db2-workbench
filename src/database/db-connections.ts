@@ -138,13 +138,14 @@ export class DbConnections implements vscode.Disposable {
 
 		let wrapper: Nullable<ConnectionWrapper>;
 		let attempts = 0;
+		let signOnRefused = true;
 
-		// The loop exists to re-prompt after a wrong password (establishConnection wipes the cached one
-		// on failure), so it assumed a failed connect always means "ask again". A failure the user
-		// can't fix by retyping - an unreachable host, a driver that can't answer the connection-time
-		// lookups - would otherwise spin here forever, since getPassword keeps handing back the same
-		// answer. Bounded so a connection that simply can't be opened reports its error instead.
-		while(wrapper?.connection?.state !== DbConnection.State.OPEN && attempts < DbConnections.MAX_CONNECT_ATTEMPTS) {
+		// The loop exists to re-prompt after a wrong password (establishConnection deletes the stored one
+		// when the host refuses the sign-on). Any other failure - an unreachable host, a driver that can't
+		// answer the connection-time lookups - keeps the password and ends the loop, since asking again
+		// can't fix it. Still bounded, so a sign-on that keeps being refused reports its error rather than
+		// prompting forever.
+		while(wrapper?.connection?.state !== DbConnection.State.OPEN && signOnRefused && attempts < DbConnections.MAX_CONNECT_ATTEMPTS) {
 			attempts++;
 			let password = await this.getPassword(configuration);
 
@@ -154,7 +155,7 @@ export class DbConnections implements vscode.Disposable {
 
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.CONNECTING, key: key, configuration: configuration });
 
-			wrapper = await vscode.window.withProgress({
+			let attempt = await vscode.window.withProgress({
 				location: vscode.ProgressLocation.Notification,
 				title: configuration.name,
 				cancellable: false
@@ -162,6 +163,9 @@ export class DbConnections implements vscode.Disposable {
 				progress.report({ message: 'Connecting...' });
 				return this.establishConnection(key, configuration, <string>password, progress);
 			});
+
+			wrapper = attempt.wrapper;
+			signOnRefused = attempt.signOnRefused;
 		}
 
 		// Out of attempts with nothing open - the ERROR event establishConnection already fired is the
@@ -197,9 +201,10 @@ export class DbConnections implements vscode.Disposable {
 		return wrapper;
 	}
 
-	private async establishConnection(key: string, configuration: ConnectionConfig, password: string, progress: vscode.Progress<ProgressReport>): Promise<Nullable<ConnectionWrapper>> {
+	private async establishConnection(key: string, configuration: ConnectionConfig, password: string, progress: vscode.Progress<ProgressReport>): Promise<ConnectAttempt> {
 		let startTime = Date.now();
-		let connection = new DbConnection({ key: key, configuration: configuration, password: password, driver: this.extension.drivers.get(configuration) });
+		let driver = this.extension.drivers.get(configuration);
+		let connection = new DbConnection({ key: key, configuration: configuration, password: password, driver: driver });
 		let wrapper: Nullable<ConnectionWrapper>;
 
 		try {
@@ -225,10 +230,20 @@ export class DbConnections implements vscode.Disposable {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.CONNECTED, key: key, configuration: configuration, connectionInfo: wrapper.info, duration: Date.now() - startTime });
 		} catch(error: any) {
 			this.extension.eventManager.fire({ type: Event.Type.DB_CONNECTION, eventType: DbConnectionEvent.EventType.ERROR, key: key, configuration: configuration, duration: Date.now() - startTime, error: error });
-			await this.extension.secrets.delete(configuration);
+
+			// A driver that can't tell a refused sign-on from any other failure has every failure treated
+			// as one - re-prompting is safer than retrying a bad password, which IBM i counts toward
+			// disabling the profile (QMAXSIGN).
+			let signOnRefused = driver.isAuthenticationError?.(error) ?? true;
+
+			if(signOnRefused) {
+				await this.extension.secrets.delete(configuration);
+			}
+
+			return { signOnRefused };
 		}
 
-		return wrapper;
+		return { wrapper, signOnRefused: false };
 	}
 
 	private async getConfiguration(): Promise<Nullable<ConnectionConfig>> {
@@ -1091,6 +1106,12 @@ export class DbConnections implements vscode.Disposable {
 
 		await Promise.all(keys.map(key => this.close({ key: key })));
 	}
+}
+
+/** How one establishConnection() attempt ended: the opened session, or whether the host refused the sign-on. */
+interface ConnectAttempt {
+	wrapper?: ConnectionWrapper;
+	signOnRefused: boolean;
 }
 
 interface ConnectionWrapper {

@@ -49,6 +49,15 @@ export interface DbDriver {
 	isSetupError?(error: unknown): boolean;
 
 	/**
+	 * Optional. True when a failed connect means the host refused the sign-on (wrong password, unknown
+	 * or disabled user, expired password), as opposed to a host that couldn't be reached. Only then is
+	 * the stored password deleted: a password the user saved on purpose shouldn't be lost to a network
+	 * outage. A driver that doesn't implement this has every connect failure treated as a sign-on
+	 * failure, which re-prompts rather than retrying a bad password against the host.
+	 */
+	isAuthenticationError?(error: unknown): boolean;
+
+	/**
 	 * Optional. Returns the ConnectOptions for a connection pinned to `target`'s sort sequence, used
 	 * when DB2 for i would otherwise bake the wrong sort sequence into a created object (see
 	 * IndexQueries.executeCreateIndex). A driver that can't pin a sort sequence returns undefined,
