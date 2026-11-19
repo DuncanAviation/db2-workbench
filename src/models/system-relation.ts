@@ -7,6 +7,8 @@ export interface SystemRelation {
 	name: string;
 	description: string;
 	kind: SystemRelation.Kind;
+	/** A logical file is a 'view' relation (see SystemView) - set so it can still be named as what it is. */
+	isLogicalFile?: boolean;
 }
 
 export namespace SystemRelation {

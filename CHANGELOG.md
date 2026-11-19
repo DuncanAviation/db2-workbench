@@ -11,6 +11,7 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 ### Added
 
 - **Set Password.** The connection editor has a Set Password button for when your password changes on the host. It asks for the new password and replaces the stored one; cancelling leaves the stored password as it was. It works on a new connection too, before it is saved or tested.
+- **Logical files in the schema browser.** Each schema has a Logical Files node after Views. A logical file opens like a view, with Info, Columns, Source and read-only Data tabs. Info shows the physical files it is built over, its access path (keyed or arrival, unique, maintenance), select/omit, join and record format, and lists the key fields in key order (K01, K02...) with descending keys marked. The Columns tab gets a Key column with the same labels; sort on it to see the columns in key order. Source shows the DDS member it was created from, finding a copy in another library when that member is gone. Content assist offers logical files after `FROM` and `JOIN`, marked as logical files.
 
 ### Changed
 

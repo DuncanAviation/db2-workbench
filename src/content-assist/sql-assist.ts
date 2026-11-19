@@ -380,7 +380,8 @@ export class SqlAssist extends DbAssist {
 	}
 
 	private async getTableItems(options: SqlAssist.TableItemsOptions): Promise<DbAssist.CompletionItemDescriptor[]> {
-		// Views as well as tables: both go after FROM/JOIN, and a view's columns resolve the same way.
+		// Views (and logical files, listed with them) as well as tables: all go after FROM/JOIN, and their
+		// columns resolve the same way.
 		let relations = await this.extension.memoryCache.getRelations(options);
 
 		if(relations.length === 0) {
@@ -390,7 +391,7 @@ export class SqlAssist extends DbAssist {
 		return relations.map(relation => ({
 			label: StringUtils.isNotBlank(relation.description) ? `${relation.name} (${relation.description})` : relation.name,
 			insertText: relation.name,
-			detail: relation.kind === 'table' ? relation.schema.toLowerCase() : `${relation.schema.toLowerCase()} (${relation.kind})`,
+			detail: relation.kind === 'table' ? relation.schema.toLowerCase() : `${relation.schema.toLowerCase()} (${relation.isLogicalFile ? 'logical file' : relation.kind})`,
 			kind: 'Class',
 			sortText: DbAssist.ItemSortOrder.TABLES
 		}));

@@ -577,7 +577,7 @@ suite('MemoryCache against the fake driver', () => {
 			await openSession(key, recorder);
 
 			let libraryViews = await extension.memoryCache.getViews({ key: key, configId: TestSupport.CONFIG_ID });
-			assert.deepStrictEqual(libraryViews.map(view => `${view.schema}.${view.name}`), ['SALES.CUSTORD']);
+			assert.deepStrictEqual(libraryViews.map(view => `${view.schema}.${view.name}:${view.viewType}`), ['SALES.CUSTORD:V', 'SALES.ORDERSL1:L']);
 			assert.strictEqual(libraryViews[0].description, 'Orders with customer names');
 
 			let archiveViews = await extension.memoryCache.getViewsForSchemas({ key: key, configId: TestSupport.CONFIG_ID }, ['ARCHIVE']);
@@ -586,6 +586,37 @@ suite('MemoryCache against the fake driver', () => {
 			let queried = recorder.matching(/sysviews/).length;
 			await extension.memoryCache.getViewsForSchemas({ key: key, configId: TestSupport.CONFIG_ID }, ['ARCHIVE']);
 			assert.strictEqual(recorder.matching(/sysviews/).length, queried, 'a schema already listed should be a cache hit');
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	// A logical file has a SYSTABLES row of type 'L' and no SYSVIEWS row. It is listed with the views, in the same
+	// per-schema cache slot, and its columns resolve by bare name the way a view's do.
+	test('logical files list with the views from SYSTABLES, and a bare logical file name resolves to its columns', async () => {
+		let key = 'test://cache-logical-files';
+		let recorder = TestSupport.recordStatements();
+
+		try {
+			await openSession(key, recorder);
+
+			let views = await extension.memoryCache.getViewsForSchemas({ key: key, configId: TestSupport.CONFIG_ID }, ['SALES']);
+			let logicalFile = views.find(view => view.name === 'ORDERSL1');
+			assert.ok(logicalFile != null, 'the logical file should be listed with the views');
+			assert.deepStrictEqual(
+				{ viewType: logicalFile.viewType, description: logicalFile.description, selectOmit: logicalFile.selectOmit },
+				{ viewType: 'L', description: 'Orders by customer', selectOmit: 'Y' }
+			);
+			assert.ok(recorder.matching(/qsys2\.systables .*type = 'L'/i).length > 0, 'logical files should come from SYSTABLES');
+
+			let queried = recorder.matching(/type = 'L'/i).length;
+			await extension.memoryCache.getViewsForSchemas({ key: key, configId: TestSupport.CONFIG_ID }, ['SALES']);
+			assert.strictEqual(recorder.matching(/type = 'L'/i).length, queried, 'logical files share the cached views slot');
+
+			let columns = await extension.memoryCache.getColumns({ key: key, configId: TestSupport.CONFIG_ID, tables: { table: 'ORDERSL1' } });
+			assert.deepStrictEqual(columns.map(column => `${column.schema}.${column.tableName}.${column.systemName}`), [
+				'SALES.ORDERSL1.ORDNO', 'SALES.ORDERSL1.CUSTNO'
+			]);
 		} finally {
 			await TestSupport.closeSessions(key);
 		}
@@ -602,8 +633,9 @@ suite('MemoryCache against the fake driver', () => {
 
 			let relations = await extension.memoryCache.getRelations({ key: key, configId: TestSupport.CONFIG_ID, schema: 'SALES' });
 			assert.deepStrictEqual(relations.map(relation => `${relation.name}:${relation.kind}`), [
-				'CUSTOMER:table', 'ORDERS:table', 'SHIPMENT:table', 'ORDNOTE:table', 'CUSTTOT:table', 'CUSTORD:view'
+				'CUSTOMER:table', 'ORDERS:table', 'SHIPMENT:table', 'ORDNOTE:table', 'CUSTTOT:table', 'CUSTORD:view', 'ORDERSL1:view'
 			]);
+			assert.deepStrictEqual(relations.filter(relation => relation.isLogicalFile).map(relation => relation.name), ['ORDERSL1']);
 
 			let columns = await extension.memoryCache.getColumns({ key: key, configId: TestSupport.CONFIG_ID, tables: { table: 'CUSTORD' } });
 			assert.deepStrictEqual(columns.map(column => `${column.schema}.${column.tableName}.${column.systemName}`), [
@@ -763,8 +795,8 @@ suite('MemoryCache against the fake driver', () => {
 		try {
 			let state = await extension.schemaTrees.buildTreeState({ key: key, configId: TestSupport.CONFIG_ID });
 
-			assert.deepStrictEqual(state.viewsBySchema['SALES']?.map(view => view.name), ['CUSTORD']);
-			assert.ok(!state.tablesBySchema['SALES'].some(entry => entry.connected?.name === 'CUSTORD'));
+			assert.deepStrictEqual(state.viewsBySchema['SALES']?.map(view => view.name), ['CUSTORD', 'ORDERSL1']);
+			assert.ok(!state.tablesBySchema['SALES'].some(entry => entry.connected?.name === 'CUSTORD' || entry.connected?.name === 'ORDERSL1'));
 		} finally {
 			await TestSupport.closeSessions(key);
 		}

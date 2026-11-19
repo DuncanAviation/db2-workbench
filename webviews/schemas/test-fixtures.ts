@@ -19,8 +19,17 @@ export function systemTable(schema: string, name: string, overrides: Partial<Sch
 /** A view's QSYS2.SYSVIEWS row, joined description included. */
 export function systemView(schema: string, name: string, overrides: Partial<SchemasSystemView> = {}): SchemasSystemView {
 	return {
-		schema, name, sqlSchema: schema, sqlName: name, description: '', remarks: '', owner: 'QSECOFR', definer: 'QSECOFR', sequenceNumber: 1,
+		schema, name, viewType: 'V', sqlSchema: schema, sqlName: name, description: '', remarks: '', owner: 'QSECOFR', definer: 'QSECOFR', sequenceNumber: 1,
 		checkOption: 'N', iaspNumber: 0, insertable: 'NO', updatable: 'N', deletable: 'N', decFltRnd: '',
+		...overrides
+	};
+}
+
+/** A DDS logical file's QSYS2.SYSTABLES row (type 'L'), as the tree carries it with the views. */
+export function logicalFile(schema: string, name: string, overrides: Partial<SchemasSystemView> = {}): SchemasSystemView {
+	return {
+		schema, name, viewType: 'L', sqlSchema: schema, sqlName: name, description: '', remarks: '', owner: 'QSECOFR', iaspNumber: 0,
+		insertable: 'YES', selectOmit: 'N',
 		...overrides
 	};
 }

@@ -74,7 +74,9 @@ export const SAMPLE_DATABASE = defineFakeDatabase({
 					],
 					indexes: [
 						{ name: 'ORDERS_PK', indexType: 'PRIMARY KEY', unique: 0, columnNames: 'ORDNO' },
-						{ name: 'ORDERS_BY_CUST', indexType: 'INDEX', unique: 2, columnNames: 'CUSTNO, ORDDT', owner: 'QSECOFR', comment: 'Lookup by customer' }
+						{ name: 'ORDERS_BY_CUST', indexType: 'INDEX', unique: 2, columnNames: 'CUSTNO, ORDDT', owner: 'QSECOFR', comment: 'Lookup by customer' },
+						// The keyed logical file ORDERSL1 (declared with the views), as SYSPARTITIONINDEXSTAT lists it.
+						{ name: 'ORDERSL1', indexType: 'LOGICAL', unique: 2, columnNames: 'CUSTNO' }
 					],
 					advisedIndexes: [
 						{ keyColumnsAdvised: 'ORDDT', reasonAdvised: 'Ordering/Grouping', timesAdvised: 12 }
@@ -175,6 +177,20 @@ export const SAMPLE_DATABASE = defineFakeDatabase({
 					rows: [
 						{ ORDNO: 1000, CUSTNM: 'Prairie Air' },
 						{ ORDNO: 1001, CUSTNM: 'Example Air' }
+					]
+				},
+				// A DDS logical file over ORDERS - listed from SYSTABLES type 'L', never from SYSVIEWS.
+				{
+					name: 'ORDERSL1',
+					description: 'Orders by customer',
+					logicalFile: { selectOmit: true, basedOn: ['ORDERS'], accessPathType: 'KEYED', keyFieldCount: 1, source: { file: 'QDDSSRC', member: 'ORDERSL1' } },
+					columns: [
+						{ systemName: 'ORDNO', sqlName: 'ORDNO', dataType: 'INTEGER', length: 4 },
+						{ systemName: 'CUSTNO', sqlName: 'CUSTNO', dataType: 'INTEGER', length: 4 }
+					],
+					rows: [
+						{ ORDNO: 1000, CUSTNO: 1 },
+						{ ORDNO: 1001, CUSTNO: 2 }
 					]
 				}
 			],
@@ -307,7 +323,8 @@ export const SAMPLE_DATABASE = defineFakeDatabase({
 				{ file: 'QRPGLESRC', member: 'ORDAUD01', lines: ['**free', 'dcl-proc audit export;     ', 'end-proc;'] },
 				{ file: 'QRPGLESRC', member: 'ORDSRV01', lines: ['**free', 'ctl-opt nomain;', 'dcl-proc formatDate export;', 'end-proc;'] },
 				{ file: 'QRPGLESRC', member: 'ORDSRV02', lines: ['**free', 'ctl-opt nomain;', 'dcl-proc ordHist export;', 'end-proc;'] },
-				{ file: 'QRPGSRC', member: 'ORDRPT', lines: ['     C                   SETON                    LR'] }
+				{ file: 'QRPGSRC', member: 'ORDRPT', lines: ['     C                   SETON                    LR'] },
+				{ file: 'QDDSSRC', member: 'ORDERSL1', lines: ['     A          R ORDERSL1R                 PFILE(ORDERS)', '     A          K CUSTNO'] }
 			]
 		},
 		{

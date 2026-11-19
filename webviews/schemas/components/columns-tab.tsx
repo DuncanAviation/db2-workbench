@@ -5,6 +5,8 @@ import { getCoreRowModel, getFilteredRowModel, getSortedRowModel, useReactTable 
 import type { ResolvedColumn } from '../../../src/schema-conversion/schema-format-converter';
 import type { SchemasInboundMessage } from '../../../src/webview-messages/schemas-messages';
 import type { DbErrorUtils } from '../../../src/utils/db-error-utils';
+import { ColumnNameUtils } from '../../../src/utils/column-name-utils.js';
+import { IndexKeyUtils } from '../../../src/utils/index-key-utils.js';
 import { DataTable } from '../../shared/components/data-table';
 import { ImportBadge } from '../../shared/components/import-badge';
 import { Loading } from '../../shared/components/loading';
@@ -16,6 +18,9 @@ interface Props {
 	/** Whether this table's TableDetail header shows an Imported/Enhanced badge - see table-detail.tsx.
 	 * The flags column below is only ever non-blank in that case, so it's only shown then. */
 	hasImportedData: boolean;
+	/** A keyed logical file's key, in key order - adds a Key column (K01, K02... as on the green screen)
+	 * after #. A key naming no column here (an expression) gets no label. */
+	keyColumns?: IndexKeyUtils.KeyColumn[];
 }
 
 // Not part of the underlying data - excluded from DataTable's own export via excludeColumnIdsFromExport
@@ -66,7 +71,7 @@ const BASE_COLUMN_DEFS: ColumnDef<ResolvedColumn>[] = [
 	{ accessorKey: 'ccsid', header: 'CCSID' }
 ];
 
-export function ColumnsTab({ table, hasImportedData }: Props) {
+export function ColumnsTab({ table, hasImportedData, keyColumns }: Props) {
 	const [columns, setColumns] = useState<ResolvedColumn[] | null>(null);
 	const [error, setError] = useState<DbErrorUtils.SerializedError | null>(null);
 	const [sorting, setSorting] = useState<SortingState>([]);
@@ -102,10 +107,46 @@ export function ColumnsTab({ table, hasImportedData }: Props) {
 		schemasVsCodeApi.postMessage({ command: 'loadColumns', schema: table.schema, table: table.name, forceRefresh: true });
 	}
 
-	const columnDefs = useMemo<ColumnDef<ResolvedColumn>[]>(
-		() => hasImportedData ? [FLAGS_COLUMN, ...BASE_COLUMN_DEFS] : BASE_COLUMN_DEFS,
-		[hasImportedData]
-	);
+	// Each key's column, found by any of its names (COLUMN_NAMES may give the short or the long one).
+	const keyByColumn = useMemo(() => {
+		let byColumn = new Map<string, IndexKeyUtils.KeyColumn>();
+
+		if (keyColumns?.length && columns) {
+			let resolve = ColumnNameUtils.buildResolver(columns, column => ({ identity: column.systemName, shortName: column.systemName, longName: column.sqlName }));
+
+			for (let key of keyColumns) {
+				let column = resolve(key.name);
+
+				if (column && !byColumn.has(column.systemName)) {
+					byColumn.set(column.systemName, key);
+				}
+			}
+		}
+
+		return byColumn;
+	}, [keyColumns, columns]);
+
+	const columnDefs = useMemo<ColumnDef<ResolvedColumn>[]>(() => {
+		let defs = [...BASE_COLUMN_DEFS];
+
+		// Sorted by key position, so a click on the header lists the key fields in key order.
+		if (keyColumns?.length) {
+			defs.splice(1, 0, {
+				id: 'key',
+				header: 'Key',
+				accessorFn: column => keyByColumn.get(column.systemName)?.position,
+				cell: info => {
+					let key = keyByColumn.get(info.row.original.systemName);
+					return key ? IndexKeyUtils.label(key) : '';
+				},
+				sortUndefined: 'last',
+				// TanStack sorts a numeric column descending first - key order is ascending.
+				sortDescFirst: false
+			});
+		}
+
+		return hasImportedData ? [FLAGS_COLUMN, ...defs] : defs;
+	}, [hasImportedData, keyColumns, keyByColumn]);
 
 	const reactTable = useReactTable({
 		data: columns ?? [],

@@ -21,6 +21,7 @@ import { SystemSchema } from './models/system-schema.js';
 import { SystemTableKey } from './models/system-table-key.js';
 import { SystemTable } from './models/system-table.js';
 import { SystemTrigger } from './models/system-trigger.js';
+import { SystemLogicalFile } from './models/system-logical-file.js';
 import { SystemView } from './models/system-view.js';
 
 import { ArrayUtils } from './utils/array-utils.js';
@@ -123,7 +124,13 @@ export class MemoryCache {
 	}
 
 	private static toRelation(source: SystemTable | SystemView, kind: SystemRelation.Kind): SystemRelation {
-		return {schema: source.schema, name: source.name, description: source.description, kind: kind};
+		let relation: SystemRelation = {schema: source.schema, name: source.name, description: source.description, kind: kind};
+
+		if('viewType' in source && SystemView.isLogicalFile(source)) {
+			relation.isLogicalFile = true;
+		}
+
+		return relation;
 	}
 
 	// Every view on the session's library list - composed from per-schema slots the same way as getTables().
@@ -382,6 +389,31 @@ export class MemoryCache {
 		});
 
 		return loaded[0]?.detail;
+	}
+
+	// A logical file's SYSFILES detail and key fields, cached per file - the Info and Columns tabs both
+	// ask for it. Concurrent asks share one lookup (Sync.get, as load() does), but unlike load() a failure
+	// is thrown rather than turned into "no such file": the Info tab says why it has no detail (SYSFILES
+	// is missing on older releases). A failure caches nothing. forceRefresh bypasses the cached detail.
+	async getLogicalFile(options: CatalogQueries.GetLogicalFileOptions & {forceRefresh?: boolean}): Promise<SystemLogicalFile | undefined> {
+		let key = await this.getCacheKey(options, `${MemoryCache.Keys.SYSTEM_LOGICAL_FILES}.${options.schema}.${options.file}`.toLowerCase());
+
+		if(options.forceRefresh) {
+			this.cacheMap.delete(key);
+		}
+
+		let holder = await lastValueFrom(Sync.get(`memory-cach-${key}`, async () => {
+			let cached = <{file: SystemLogicalFile | undefined} | undefined>await this.get(key);
+
+			if(cached == null) {
+				cached = {file: await this.extension.catalogQueries.getLogicalFile(options)};
+				this.set(key, cached);
+			}
+
+			return cached;
+		}));
+
+		return holder.file;
 	}
 
 	// The routine's generated CREATE statement, cached per routine like its detail. A GENERATE_SQL that
@@ -746,6 +778,7 @@ export namespace MemoryCache {
 		SYSTEM_VIEWS = 'system-views',
 		SYSTEM_VIEW_DEFINITIONS = 'system-view-definitions',
 		SYSTEM_MQT_DEFINITIONS = 'system-mqt-definitions',
+		SYSTEM_LOGICAL_FILES = 'system-logical-files',
 		SYSTEM_ROUTINES = 'system-routines',
 		SYSTEM_ROUTINE_PARAMETERS = 'system-routine-parameters',
 		SYSTEM_ROUTINE_DETAILS = 'system-routine-details',

@@ -60,6 +60,10 @@ export class CatalogResponder {
 			return this.buildSchemas();
 		}
 
+		if(normalized.includes('qsys2.sysfiles')) {
+			return this.buildFiles(values);
+		}
+
 		if(normalized.includes('qsys2.systables')) {
 			return this.buildTables(normalized, values);
 		}
@@ -93,6 +97,10 @@ export class CatalogResponder {
 
 		if(normalized.includes('qsys2.generate_sql')) {
 			return this.buildGeneratedSql(values);
+		}
+
+		if(normalized.includes('qsys2.object_statistics(?, \'*file\', ?)')) {
+			return this.buildFileObject(values);
 		}
 
 		if(normalized.includes('qsys2.object_statistics(\'*libl\'')) {
@@ -183,13 +191,20 @@ export class CatalogResponder {
 	 * CatalogQueries.listTables filters by `sys_dname in (?, ...)`, its parameters schema names, so
 	 * they're matched by name rather than through readTargets. It lists materialized query tables along
 	 * with the tables. CatalogQueries.getMqtDefinition selects
-	 * MQTDEF alone for one MQT, bound [schema, table].
+	 * MQTDEF alone for one MQT, bound [schema, table]. CatalogQueries.listViews' logical file statement
+	 * (`type = 'L'`) answers from the views declared as logical files.
 	 */
 	private buildTables(normalized: string, values: string[]): Record<string, unknown>[] {
 		if(normalized.startsWith('select mqtdef from')) {
 			let table = this.database.schemas.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[0]))
 				?.tables.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[1]));
 			return table?.mqtDefinition != null ? [{ MQTDEF: table.mqtDefinition }] : [];
+		}
+
+		if(normalized.includes('type = \'l\'')) {
+			return this.findSchemas(values).flatMap(schema => schema.views
+				.filter(view => view.logicalFile != null)
+				.map(view => CatalogResponder.buildLogicalFileRow(schema, view)));
 		}
 
 		return this.findSchemas(values).flatMap(schema => schema.tables.map(table => CatalogResponder.buildTableRow(schema, table)));
@@ -232,17 +247,81 @@ export class CatalogResponder {
 	}
 
 	/**
+	 * CatalogQueries.getLogicalFile reads one logical file's SYSFILES row, bound [schema, file]. Only logical
+	 * files are declared with what SYSFILES says, so any other file has no row here.
+	 */
+	private buildFiles(values: string[]): Record<string, unknown>[] {
+		let schema = this.database.schemas.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[0]));
+		let view = schema?.views.find(candidate => candidate.logicalFile != null && StringUtils.equalsIgnoreCase(candidate.name, values[1]));
+		let logicalFile = view?.logicalFile;
+
+		if(schema == null || view == null || logicalFile == null) {
+			return [];
+		}
+
+		return [{
+			LIB_NAME: schema.name,
+			FILE_NAME: view.name,
+			TEXT: view.description,
+			OWNER: 'QPGMR',
+			ALTEREDTS: '2026-01-01 08:00:00',
+			BASED_ON: JSON.stringify({ BASED_ON_FILES: logicalFile.basedOn.map(file => ({ LIBRARY: schema.name, FILE: file, MEMBER: file, LF_FORMAT: `${view.name}R` })) }),
+			AP_TYPE: logicalFile.accessPathType,
+			KEY_FLDS: logicalFile.keyFieldCount,
+			MAINT: '*IMMED',
+			SELECTOMIT: logicalFile.selectOmit ? 'YES' : 'NO',
+			JFILE: logicalFile.basedOn.length > 1 ? 'YES' : 'NO',
+			DYNSLT: 'NO',
+			FMT_NAME: `${view.name}R`
+		}];
+	}
+
+	/**
+	 * CatalogQueries.getFileSource binds [library, file] for one *FILE. Any table or view answers, with the
+	 * source member only a logical file declares.
+	 */
+	private buildFileObject(values: string[]): Record<string, unknown>[] {
+		let schema = this.database.schemas.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[0]));
+		let file = [...(schema?.tables ?? []), ...(schema?.views ?? [])].find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[1]));
+
+		if(schema == null || file == null) {
+			return [];
+		}
+
+		let source = (<FakeView>file).logicalFile?.source;
+		return [{ SOURCE_LIBRARY: source ? schema.name : null, SOURCE_FILE: source?.file ?? null, SOURCE_MEMBER: source?.member ?? null }];
+	}
+
+	private static buildLogicalFileRow(schema: FakeSchema, view: FakeView): Record<string, unknown> {
+		return {
+			SYS_DNAME: schema.name,
+			SYS_TNAME: view.name,
+			DBNAME: schema.name,
+			NAME: view.name,
+			CREATOR: 'QSECOFR',
+			LABEL: view.description,
+			REMARKS: view.remarks,
+			IASPNUMBER: 0,
+			INSERTABLE: 'YES',
+			SELECTOMIT: view.logicalFile?.selectOmit ? 'Y' : 'N'
+		};
+	}
+
+	/**
 	 * CatalogQueries has two SYSVIEWS statements. getViewDefinition selects TEXT alone for one view,
 	 * bound [schema, view]. listViews filters by `sys_vdname in (?, ...)`, as listTables does.
 	 */
 	private buildViews(normalized: string, values: string[]): Record<string, unknown>[] {
+		// A logical file has no SYSVIEWS row.
 		if(normalized.startsWith('select text from')) {
 			let schema = this.database.schemas.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[0]));
-			let view = schema?.views.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, values[1]));
+			let view = schema?.views.find(candidate => candidate.logicalFile == null && StringUtils.equalsIgnoreCase(candidate.name, values[1]));
 			return view ? [{ TEXT: view.definition }] : [];
 		}
 
-		return this.findSchemas(values).flatMap(schema => schema.views.map(view => CatalogResponder.buildViewRow(schema, view)));
+		return this.findSchemas(values).flatMap(schema => schema.views
+			.filter(view => view.logicalFile == null)
+			.map(view => CatalogResponder.buildViewRow(schema, view)));
 	}
 
 	private static buildViewRow(schema: FakeSchema, view: FakeView): Record<string, unknown> {

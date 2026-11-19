@@ -4,6 +4,7 @@ import { SystemRoutineDetail } from '../models/system-routine-detail.js';
 import { SystemRoutineParam } from '../models/system-routine-param.js';
 import { SystemRoutine } from '../models/system-routine.js';
 import { SystemView } from '../models/system-view.js';
+import type { SystemLogicalFile } from '../models/system-logical-file.js';
 import { DbErrorUtils } from '../utils/db-error-utils.js';
 import { SchemaImportErrorUtils } from '../utils/schema-import-error-utils.js';
 import { SystemIndexAdvice } from '../models/system-index-advice.js';
@@ -56,6 +57,9 @@ export interface SchemasSystemTable {
 // it needs no projection of its own - the alias just keeps the wire type named alongside the table one.
 // The definition isn't part of it: it's fetched per view (LoadViewDefinitionMessage).
 export type SchemasSystemView = SystemView;
+
+// A logical file's SYSFILES detail. Its timestamp is already a string, so it needs no projection either.
+export type SchemasLogicalFile = SystemLogicalFile;
 
 // A function or procedure as the tree shows it. `signature` (`NAME(INTEGER, CHAR)`) is only set for an overload - the
 // one case where the name alone doesn't say which function a row is. Parameters and the rest of the
@@ -351,6 +355,22 @@ export interface LoadRoutineDdlMessage {
 }
 
 // An external routine's program source - the Program Source tab. Never cached, so a Refresh just asks again.
+// A logical file's tabs address it by `table`, like every other tab-scoped message.
+export interface LoadLogicalFileMessage {
+	command: 'loadLogicalFile';
+	schema: string;
+	table: string;
+	forceRefresh?: boolean;
+}
+
+/** Read fresh every time, as a routine's program source is. */
+export interface LoadLogicalFileSourceMessage {
+	command: 'loadLogicalFileSource';
+	schema: string;
+	table: string;
+	forceRefresh?: boolean;
+}
+
 export interface LoadRoutineSourceMessage {
 	command: 'loadRoutineSource';
 	schema: string;
@@ -633,7 +653,7 @@ export interface SchemaImportReport {
 	sections?: SqlImportSectionSummary[];
 }
 
-export type SchemasOutboundMessage = LoadViewDefinitionMessage | LoadRoutineParamsMessage | LoadRoutineDetailMessage | LoadRoutineDdlMessage | LoadRoutineSourceMessage | LoadSqlImportMessage | SaveSqlImportMessage | RefreshSqlImportMessage | LoadSqlImportConnectionsMessage | RunSqlImportMessage | ImportSqlSchemaMessage | DiscardSqlImportRunMessage | LoadImportsMessage | ApplyImportsMessage | LoadColumnsMessage | LoadTableKeysMessage | LoadForeignKeysMessage | LoadIndexesMessage | LoadIndexAdviceMessage | LoadTriggersMessage | LoadTriggerSourceMessage | RunGeneratedSqlMessage | DeleteIndexMessage | RenameIndexMessage | DeleteIndexAdviceMessage | LoadTableDataMessage | RunDataEditStatementsMessage | UpdateSchemaListMessage | ExportSchemaMessage | ImportSchemaMessage | ImportSchemaFromTextMessage | DisableImportedTableDataMessage | EnableImportedTableDataMessage | SavePanelWidthMessage | SaveDataEditSettingsMessage;
+export type SchemasOutboundMessage = LoadViewDefinitionMessage | LoadLogicalFileMessage | LoadLogicalFileSourceMessage | LoadRoutineParamsMessage | LoadRoutineDetailMessage | LoadRoutineDdlMessage | LoadRoutineSourceMessage | LoadSqlImportMessage | SaveSqlImportMessage | RefreshSqlImportMessage | LoadSqlImportConnectionsMessage | RunSqlImportMessage | ImportSqlSchemaMessage | DiscardSqlImportRunMessage | LoadImportsMessage | ApplyImportsMessage | LoadColumnsMessage | LoadTableKeysMessage | LoadForeignKeysMessage | LoadIndexesMessage | LoadIndexAdviceMessage | LoadTriggersMessage | LoadTriggerSourceMessage | RunGeneratedSqlMessage | DeleteIndexMessage | RenameIndexMessage | DeleteIndexAdviceMessage | LoadTableDataMessage | RunDataEditStatementsMessage | UpdateSchemaListMessage | ExportSchemaMessage | ImportSchemaMessage | ImportSchemaFromTextMessage | DisableImportedTableDataMessage | EnableImportedTableDataMessage | SavePanelWidthMessage | SaveDataEditSettingsMessage;
 
 export interface ColumnsLoadedMessage {
 	command: 'columnsLoaded';
@@ -915,7 +935,41 @@ export interface RoutineSourceErrorMessage {
 	error: DbErrorUtils.SerializedError;
 }
 
-export type SchemasInboundMessage = ViewDefinitionLoadedMessage | ViewDefinitionErrorMessage | RoutineParamsLoadedMessage | RoutineParamsErrorMessage | RoutineDetailLoadedMessage | RoutineDetailErrorMessage | RoutineDdlLoadedMessage | RoutineDdlErrorMessage | RoutineSourceLoadedMessage | RoutineSourceErrorMessage | ColumnsLoadedMessage | ColumnsErrorMessage | TableKeysLoadedMessage | TableKeysErrorMessage | ForeignKeysLoadedMessage | ForeignKeysErrorMessage | IndexesLoadedMessage | IndexesErrorMessage | IndexAdviceLoadedMessage | IndexAdviceErrorMessage | TriggersLoadedMessage | TriggersErrorMessage | TriggerSourceLoadedMessage | TriggerSourceErrorMessage | TableDataLoadedMessage | TableDataErrorMessage;
+/** A logical file's SYSFILES row, as its Info tab shows it. */
+export interface LogicalFileLoadedMessage {
+	command: 'logicalFileLoaded';
+	schema: string;
+	table: string;
+	/** Undefined when SYSFILES has no row for the file - it was deleted since the tree loaded. */
+	file?: SchemasLogicalFile;
+}
+
+/** The SYSFILES lookup failed - on a release without QSYS2.SYSFILES, for one. The Info tab still shows the tree's fields. */
+export interface LogicalFileErrorMessage {
+	command: 'logicalFileError';
+	schema: string;
+	table: string;
+	error: DbErrorUtils.SerializedError;
+}
+
+export interface LogicalFileSourceLoadedMessage {
+	command: 'logicalFileSourceLoaded';
+	schema: string;
+	table: string;
+	/** The one DDS member, read the way a program's source member is. Empty when `unavailable` says why. */
+	sources: SchemasProgramSource[];
+	/** Why there is no source to show: none recorded, or the file no longer exists. */
+	unavailable?: string;
+}
+
+export interface LogicalFileSourceErrorMessage {
+	command: 'logicalFileSourceError';
+	schema: string;
+	table: string;
+	error: DbErrorUtils.SerializedError;
+}
+
+export type SchemasInboundMessage = ViewDefinitionLoadedMessage | ViewDefinitionErrorMessage | LogicalFileLoadedMessage | LogicalFileErrorMessage | LogicalFileSourceLoadedMessage | LogicalFileSourceErrorMessage | RoutineParamsLoadedMessage | RoutineParamsErrorMessage | RoutineDetailLoadedMessage | RoutineDetailErrorMessage | RoutineDdlLoadedMessage | RoutineDdlErrorMessage | RoutineSourceLoadedMessage | RoutineSourceErrorMessage | ColumnsLoadedMessage | ColumnsErrorMessage | TableKeysLoadedMessage | TableKeysErrorMessage | ForeignKeysLoadedMessage | ForeignKeysErrorMessage | IndexesLoadedMessage | IndexesErrorMessage | IndexAdviceLoadedMessage | IndexAdviceErrorMessage | TriggersLoadedMessage | TriggersErrorMessage | TriggerSourceLoadedMessage | TriggerSourceErrorMessage | TableDataLoadedMessage | TableDataErrorMessage;
 
 // Sent to a schemas panel that's already open when "View Table Details" is invoked again for the
 // same connection - the resolved case (SchemasProvider.TableTarget's 'table' and 'view' kinds). Kept out

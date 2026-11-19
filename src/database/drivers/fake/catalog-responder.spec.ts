@@ -164,7 +164,7 @@ describe('CatalogResponder.respond', () => {
 
 	it('answers the index query, keeping the numeric uniqueness code the mapper decodes', () => {
 		let rows = <Record<string, unknown>[]>responder.respond(INDEXES_SQL, ['SALES', 'ORDERS']);
-		expect(rows.map(row => row['INDEX_NAME'])).to.deep.equal(['ORDERS_PK', 'ORDERS_BY_CUST']);
+		expect(rows.map(row => row['INDEX_NAME'])).to.deep.equal(['ORDERS_PK', 'ORDERS_BY_CUST', 'ORDERSL1']);
 		expect(rows[0]['UNIQUE_CODE']).to.equal(0);
 	});
 
