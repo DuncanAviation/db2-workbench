@@ -530,5 +530,33 @@ Ref "APPUSRL_ROLE": "S"."CHILD"."PARENT_ID" > "S"."PARENT"."ID" [update: no acti
 			expect(reimported.uniqueKeys).to.deep.equal([{name: 'APPUSER_RCID', columns: ['RCID']}]);
 			expect(reimported.indexes).to.deep.equal([{name: 'APLUSER09', columns: ['EMNO'], unique: false, comment: undefined}]);
 		});
+
+		// DB2 delimited identifiers may contain backslashes and double quotes. A trailing backslash
+		// used to escape the closing quote (unparseable DBML), and a literal "\n" came back as a newline.
+		it('preserves identifiers containing backslashes and double quotes', async () => {
+			let names = ['TRAILING\\', 'MID\\"QUOTE', 'SAY "HI"', 'LITERAL\\nBACKSLASH'];
+			let table = resolvedTable({
+				schema: 'SCH\\',
+				name: 'T\\"1',
+				columns: names.map(systemName => resolvedColumn({systemName})),
+				keys: [resolvedTableKey({constraintName: 'PK\\', systemColumnName: names[0]})],
+				foreignKeys: [resolvedForeignKey({
+					constraintName: 'FK\\"1', systemColumnName: names[1],
+					referencedSchema: 'OTHER\\', referencedTable: 'P"1', referencedSystemColumnName: 'ID\\'
+				})]
+			});
+
+			let [reimported] = await dbmlFormat.import(dbmlFormat.export([table]));
+
+			expect(reimported.schema).to.equal('SCH\\');
+			expect(reimported.name).to.equal('T\\"1');
+			expect(reimported.columns.map(column => column.name)).to.deep.equal(names);
+			expect(reimported.primaryKeyColumns).to.deep.equal([names[0]]);
+			expect(reimported.foreignKeys).to.deep.equal([{
+				name: 'FK\\"1', columns: [names[1]],
+				referencedSchema: 'OTHER\\', referencedTable: 'P"1', referencedColumns: ['ID\\'],
+				updateRule: undefined, deleteRule: undefined
+			}]);
+		});
 	});
 });
