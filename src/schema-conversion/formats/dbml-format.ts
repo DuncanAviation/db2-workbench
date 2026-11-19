@@ -2,8 +2,9 @@ import { ImportedTableSchema, ResolvedColumn, ResolvedForeignKey, ResolvedTable,
 import { ColumnNameUtils } from '../../utils/column-name-utils.js';
 import { groupByConstraint } from './key-grouping.js';
 
+// Escape backslashes before quotes, as dbmlString() does: DB2 delimited identifiers may contain either.
 function quote(identifier: string): string {
-	return `"${identifier.replace(/"/g, '\\"')}"`;
+	return `"${identifier.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 function dbmlString(value: string): string {
@@ -357,23 +358,29 @@ export const dbmlFormat: SchemaFormatConverter = {
 		// (about 15 MB bundled, against well under 1 MB of our own), and only importing a DBML file needs it.
 		// esbuild-extension.mjs splits it into its own chunk, so activation never reads or parses it.
 		let { Parser } = await import('@dbml/core');
-		let database = Parser.parse(content, 'dbml');
+		// 'dbmlv2', not the legacy 'dbml' parser: the legacy one takes a quoted identifier's text verbatim, so
+		// it can't read back a name with a double quote in it, or the escaping export() applies to one.
+		let database = Parser.parse(content, 'dbmlv2');
 		let imported: Omit<ImportedTableSchema, 'provenance'>[] = [];
 
-		for(let schema of database.schemas) {
-			// Endpoint.relation is '1' on the referenced (one) side and '*' on the referencing (many) side -
-			// see @dbml/core's Endpoint model. A ref with any other shape (self-refs, missing sides) is
-			// skipped rather than guessed at.
-			let manyToOneRefs = schema.refs
-				.map(ref => ({
-					many: ref.endpoints.find(endpoint => endpoint.relation === '*'),
-					one: ref.endpoints.find(endpoint => endpoint.relation === '1'),
-					name: ref.name || undefined,
-					updateRule: ref.onUpdate || undefined,
-					deleteRule: ref.onDelete || undefined
-				}))
-				.filter((pair): pair is {many: NonNullable<typeof pair.many>; one: NonNullable<typeof pair.one>; name: string | undefined; updateRule: string | undefined; deleteRule: string | undefined} => !!pair.many && !!pair.one);
+		// The v2 parser files a top-level Ref under the default schema ('public'), not under the schema of
+		// the tables it joins, so refs are gathered across every schema. An endpoint with no schema of its
+		// own belongs to the schema the ref was filed under.
+		// Endpoint.relation is '1' on the referenced (one) side and '*' on the referencing (many) side -
+		// see @dbml/core's Endpoint model. A ref with any other shape (self-refs, missing sides) is
+		// skipped rather than guessed at.
+		let manyToOneRefs = database.schemas
+			.flatMap(schema => schema.refs.map(ref => ({
+				many: ref.endpoints.find(endpoint => endpoint.relation === '*'),
+				one: ref.endpoints.find(endpoint => endpoint.relation === '1'),
+				ownerSchema: schema.name,
+				name: ref.name || undefined,
+				updateRule: ref.onUpdate || undefined,
+				deleteRule: ref.onDelete || undefined
+			})))
+			.filter((pair): pair is typeof pair & {many: NonNullable<typeof pair.many>; one: NonNullable<typeof pair.one>} => !!pair.many && !!pair.one);
 
+		for(let schema of database.schemas) {
 			for(let table of schema.tables) {
 				// A pk/unique-flagged indexes-block entry (see constraintNameSetting) represents the same
 				// constraint a field's own `pk`/`unique` flag does, just with a name attached - it must not
@@ -418,7 +425,7 @@ export const dbmlFormat: SchemaFormatConverter = {
 						...fieldLevelUniqueColumns.map(name => ({columns: [name]}))
 					],
 					foreignKeys: manyToOneRefs
-						.filter(({many}) => many.tableName === table.name && (many.schemaName ?? schema.name) === schema.name)
+						.filter(({many, ownerSchema}) => many.tableName === table.name && (many.schemaName ?? ownerSchema) === schema.name)
 						.map(({many, one, name, updateRule, deleteRule}) => ({
 							name,
 							columns: many.fieldNames,
