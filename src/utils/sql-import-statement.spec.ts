@@ -3,34 +3,34 @@ import { buildSqlImportStatement, findDuplicateResultColumn } from './sql-import
 
 describe('buildSqlImportStatement', () => {
 	it('returns the statement untouched when there is nothing to add', () => {
-		expect(buildSqlImportStatement('select * from appdbrl')).to.equal('select * from appdbrl');
+		expect(buildSqlImportStatement('select * from dbrole')).to.equal('select * from dbrole');
 	});
 
 	it('strips a trailing semicolon', () => {
-		expect(buildSqlImportStatement('select * from appdbrl ;')).to.equal('select * from appdbrl');
+		expect(buildSqlImportStatement('select * from dbrole ;')).to.equal('select * from dbrole');
 	});
 
 	it('wraps the statement and filters on schema and table', () => {
-		let statement = buildSqlImportStatement('select schema1, name1 from appdbrl', {
+		let statement = buildSqlImportStatement('select schema1, name1 from dbrole', {
 			filter: {schemaColumn: 'SCHEMA1', tableColumn: 'NAME1', tables: [{schema: 'ACME', table: 'APPUSER'}]}
 		});
 
 		expect(statement).to.equal([
-			'select * from (select schema1, name1 from appdbrl) SRC',
+			'select * from (select schema1, name1 from dbrole) SRC',
 			'where (SRC."SCHEMA1" = \'ACME\' and SRC."NAME1" = \'APPUSER\')'
 		].join('\n'));
 	});
 
 	it('batches multiple tables into one OR chain', () => {
-		let statement = buildSqlImportStatement('select * from appdbrl', {
+		let statement = buildSqlImportStatement('select * from dbrole', {
 			filter: {
 				schemaColumn: 'SCHEMA1',
 				tableColumn: 'NAME1',
-				tables: [{schema: 'ACME', table: 'APPUSER'}, {schema: 'ACME', table: 'APPUSJB'}]
+				tables: [{schema: 'ACME', table: 'APPUSER'}, {schema: 'ACME', table: 'USERJOB'}]
 			}
 		});
 
-		expect(statement).to.contain('(SRC."SCHEMA1" = \'ACME\' and SRC."NAME1" = \'APPUSER\')\n   or (SRC."SCHEMA1" = \'ACME\' and SRC."NAME1" = \'APPUSJB\')');
+		expect(statement).to.contain('(SRC."SCHEMA1" = \'ACME\' and SRC."NAME1" = \'APPUSER\')\n   or (SRC."SCHEMA1" = \'ACME\' and SRC."NAME1" = \'USERJOB\')');
 	});
 
 	it('escapes quotes in values and column names', () => {
@@ -42,8 +42,8 @@ describe('buildSqlImportStatement', () => {
 	});
 
 	it('applies a row limit without a filter', () => {
-		expect(buildSqlImportStatement('select * from appdbrl', {rowLimit: 500})).to.equal([
-			'select * from (select * from appdbrl) SRC',
+		expect(buildSqlImportStatement('select * from dbrole', {rowLimit: 500})).to.equal([
+			'select * from (select * from dbrole) SRC',
 			'fetch first 500 rows only'
 		].join('\n'));
 	});
@@ -87,9 +87,9 @@ describe('buildSqlImportStatement', () => {
 	it('hoists a leading common table expression in front of the wrapper', () => {
 		let sql = [
 			'with tables as (',
-			'\tselect schema1 as schema, name1 as name from appdbrl',
+			'\tselect schema1 as schema, name1 as name from dbrole',
 			'\tunion',
-			'\tselect schema2 as schema, name2 as name from appdbrl',
+			'\tselect schema2 as schema, name2 as name from dbrole',
 			')',
 			'select distinct schema, name from tables'
 		].join('\n');
@@ -98,9 +98,9 @@ describe('buildSqlImportStatement', () => {
 
 		expect(statement).to.equal([
 			'with tables as (',
-			'\tselect schema1 as schema, name1 as name from appdbrl',
+			'\tselect schema1 as schema, name1 as name from dbrole',
 			'\tunion',
-			'\tselect schema2 as schema, name2 as name from appdbrl',
+			'\tselect schema2 as schema, name2 as name from dbrole',
 			')',
 			'select * from (select distinct schema, name from tables) SRC',
 			'fetch first 50001 rows only'

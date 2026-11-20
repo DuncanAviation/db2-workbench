@@ -42,13 +42,13 @@ const MODEL: DiagramModel = {
 	tables: [
 		{
 			id: 'SALES.CUSTOMER', schemaId: 'SALES', name: 'CUSTOMER', description: 'Customer master', position: { x: 20, y: 40 },
-			columns: [column('CUSTOMER_NUMBER', { shortName: 'CUSNO', longName: 'CUSTOMER_NUMBER', primaryKey: true, indexed: true })]
+			columns: [column('CUSTOMER_NUMBER', { shortName: 'CUSTNO', longName: 'CUSTOMER_NUMBER', primaryKey: true, indexed: true })]
 		},
 		{
 			id: 'SALES.ORDERS', schemaId: 'SALES', name: 'ORDERS', position: { x: 340, y: 40 },
 			columns: [
 				column('ORDER_NUMBER', { shortName: 'ORDNO', longName: 'ORDER_NUMBER', primaryKey: true }),
-				column('CUSTOMER_NUMBER', { shortName: 'CUSNO', longName: 'CUSTOMER_NUMBER', foreignKey: true })
+				column('CUSTOMER_NUMBER', { shortName: 'CUSTNO', longName: 'CUSTOMER_NUMBER', foreignKey: true })
 			]
 		},
 		{
@@ -329,7 +329,7 @@ describe('diagram webview', () => {
 			let user = userEvent.setup();
 			await renderDiagram();
 
-			await user.click(within(requireTableNode('SALES.ORDERS')).getByText('CUSNO'));
+			await user.click(within(requireTableNode('SALES.ORDERS')).getByText('CUSTNO'));
 			let schemaNode = document.querySelector<HTMLElement>('.react-flow__node[data-id="SALES"]') as HTMLElement;
 			fireEvent.click(within(schemaNode).getAllByText('SALES')[0]);
 			expect(postedAfterReady()).toEqual([]);
@@ -372,7 +372,7 @@ describe('diagram webview', () => {
 			await renderDiagram();
 			await navigator.clipboard.writeText('untouched');
 
-			fireEvent.contextMenu(within(requireTableNode('SALES.ORDERS')).getByText('CUSNO'));
+			fireEvent.contextMenu(within(requireTableNode('SALES.ORDERS')).getByText('CUSTNO'));
 
 			let items = screen.getAllByRole('menuitem').map(item => item.textContent);
 			expect(items.slice(0, 3)).toEqual(['Copy Name', 'Copy Long Name', 'Copy Description']);
@@ -381,15 +381,15 @@ describe('diagram webview', () => {
 			await user.click(screen.getByRole('menuitem', { name: 'Copy Long Name' }));
 			expect(await navigator.clipboard.readText()).toBe('CUSTOMER_NUMBER');
 
-			fireEvent.contextMenu(within(requireTableNode('SALES.ORDERS')).getByText('CUSNO'));
+			fireEvent.contextMenu(within(requireTableNode('SALES.ORDERS')).getByText('CUSTNO'));
 			await user.click(screen.getByRole('menuitem', { name: 'Copy Name' }));
-			expect(await navigator.clipboard.readText()).toBe('CUSNO');
+			expect(await navigator.clipboard.readText()).toBe('CUSTNO');
 		});
 
 		it('a right-click hides the tooltip of the column it lands on', async () => {
 			let user = userEvent.setup();
 			await renderDiagram();
-			let cell = within(requireTableNode('SALES.ORDERS')).getByText('CUSNO');
+			let cell = within(requireTableNode('SALES.ORDERS')).getByText('CUSTNO');
 
 			await user.hover(cell);
 			await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeNull());
@@ -407,9 +407,9 @@ describe('diagram webview', () => {
 			await renderDiagram();
 			let orders = within(requireTableNode('SALES.ORDERS'));
 
-			fireEvent.contextMenu(orders.getByText('CUSNO'));
+			fireEvent.contextMenu(orders.getByText('CUSTNO'));
 			await user.hover(orders.getByText('ORDNO'));
-			await user.hover(within(requireTableNode('SALES.CUSTOMER')).getByText('CUSNO'));
+			await user.hover(within(requireTableNode('SALES.CUSTOMER')).getByText('CUSTNO'));
 			await new Promise(resolve => setTimeout(resolve, TOOLTIP_ENTER_DELAY_MS + 100));
 
 			await user.click(orders.getByText('ORDNO'));

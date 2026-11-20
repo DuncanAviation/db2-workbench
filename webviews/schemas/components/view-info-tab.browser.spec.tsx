@@ -14,10 +14,10 @@ const KEY_COUNT = 40;
 
 describe('logical file Info tab in a real browser', () => {
 	it('scrolls a long key list inside a bounded height, leaving the groups after it in view', async () => {
-		renderWebview(<ViewInfoTab view={logicalFile('DUND', 'WOLMAS39')} />);
+		renderWebview(<ViewInfoTab view={logicalFile('SALESLIB', 'JOBHDRL39')} />);
 
-		postFromHost<SchemasInboundMessage>({ command: 'logicalFileLoaded', schema: 'DUND', table: 'WOLMAS39', file: {
-			schema: 'DUND', name: 'WOLMAS39', basedOn: [{ library: 'DUND', file: 'WOPMAS' }], accessPathType: 'KEYED',
+		postFromHost<SchemasInboundMessage>({ command: 'logicalFileLoaded', schema: 'SALESLIB', table: 'JOBHDRL39', file: {
+			schema: 'SALESLIB', name: 'JOBHDRL39', basedOn: [{ library: 'SALESLIB', file: 'JOBHDR' }], accessPathType: 'KEYED',
 			keyFieldCount: KEY_COUNT, keyFields: Array.from({ length: KEY_COUNT }, (_, index) => `KEY${index + 1}`).join(', '),
 			selectOmit: false, joinLogical: false, dynamicSelection: false
 		} });

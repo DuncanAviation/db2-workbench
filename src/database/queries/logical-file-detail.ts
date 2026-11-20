@@ -4,7 +4,7 @@ import { StringUtils } from '../../utils/string-utils.js';
 // Pure helpers for CatalogQueries.getLogicalFile - no vscode, no odbc, so they're unit tested on their own.
 
 /**
- * SYSFILES.BASED_ON is JSON: {"BASED_ON_FILES":[{"LIBRARY":"DUND","FILE":"WOPMAS","MEMBER":"WOPMAS","LF_FORMAT":"WORMAS"}]}.
+ * SYSFILES.BASED_ON is JSON: {"BASED_ON_FILES":[{"LIBRARY":"SALESLIB","FILE":"JOBHDR","MEMBER":"JOBHDR","LF_FORMAT":"JOBLIN"}]}.
  * Anything that isn't that shape gives no files rather than failing the Info tab over one field.
  */
 export function parseBasedOnFiles(value: unknown): SystemLogicalFile.BasedOnFile[] {

@@ -257,7 +257,7 @@ describe('CteAssist', () => {
 		}
 
 		it('flags a table used only inside a CTE\'s own body as inaccessible at the outer cursor', () => {
-			let sqlUpToCursor = 'with data as (\nselect fnam\nfrom appuser\nlimit 1000\n)\n\nselect ';
+			let sqlUpToCursor = 'with data as (\nselect firstnm\nfrom appuser\nlimit 1000\n)\n\nselect ';
 			let fullSql = sqlUpToCursor + 'from data';
 			let inaccessible = CteAssist.getInaccessibleTableNames(fullSql, caretAtEndOf(sqlUpToCursor));
 			expect(Array.from(inaccessible)).to.deep.equal([CteAssist.getTableKey('appuser')]);
@@ -301,10 +301,10 @@ describe('CteAssist', () => {
 			// statement looks like while the user is still typing the join, which used to fail the
 			// WHOLE parse and, worse, leave a same-named table used elsewhere (e.g. inside another
 			// CTE's body) with no accessible occurrence left to override its inaccessible one.
-			let sqlUpToCursor = 'with data as (\nselect fnam\nfrom appuser\nlimit 1000\n),\n\ndata2 as (\n\tselect *\n\tfrom apphost\n)\n\nselect ';
-			let fullSql = sqlUpToCursor + 'from data\njoin apphost b';
+			let sqlUpToCursor = 'with data as (\nselect firstnm\nfrom appuser\nlimit 1000\n),\n\ndata2 as (\n\tselect *\n\tfrom sitehost\n)\n\nselect ';
+			let fullSql = sqlUpToCursor + 'from data\njoin sitehost b';
 			let inaccessible = CteAssist.getInaccessibleTableNames(fullSql, caretAtEndOf(sqlUpToCursor));
-			expect(inaccessible.has(CteAssist.getTableKey('apphost', 'b'))).to.equal(false);
+			expect(inaccessible.has(CteAssist.getTableKey('sitehost', 'b'))).to.equal(false);
 			expect(inaccessible.has(CteAssist.getTableKey('appuser'))).to.equal(true);
 		});
 
@@ -324,14 +324,14 @@ describe('CteAssist', () => {
 
 		it('does not let an unrelated, unused CTE\'s own unaliased table leak in just because an outer JOIN happens to alias the same table name', () => {
 			// Regression: this used to be keyed by bare table name alone, so data2's own unaliased
-			// "apphost" (never actually referenced anywhere outside its own CTE body) was wrongly
-			// treated as accessible, purely because the OUTER "join apphost b" alias existed --
+			// "sitehost" (never actually referenced anywhere outside its own CTE body) was wrongly
+			// treated as accessible, purely because the OUTER "join sitehost b" alias existed --
 			// letting data2's unrelated table silently leak into the outer scope's results.
-			let sqlUpToCursor = 'with data as (\nselect fnam\nfrom appuser\nlimit 1000\n),\n\ndata2 as (\n\tselect *\n\tfrom apphost\n)\n\nselect ';
-			let fullSql = sqlUpToCursor + 'from data\njoin apphost b';
+			let sqlUpToCursor = 'with data as (\nselect firstnm\nfrom appuser\nlimit 1000\n),\n\ndata2 as (\n\tselect *\n\tfrom sitehost\n)\n\nselect ';
+			let fullSql = sqlUpToCursor + 'from data\njoin sitehost b';
 			let inaccessible = CteAssist.getInaccessibleTableNames(fullSql, caretAtEndOf(sqlUpToCursor));
-			expect(inaccessible.has(CteAssist.getTableKey('apphost'))).to.equal(true);
-			expect(inaccessible.has(CteAssist.getTableKey('apphost', 'b'))).to.equal(false);
+			expect(inaccessible.has(CteAssist.getTableKey('sitehost'))).to.equal(true);
+			expect(inaccessible.has(CteAssist.getTableKey('sitehost', 'b'))).to.equal(false);
 		});
 	});
 });

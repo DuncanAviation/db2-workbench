@@ -252,8 +252,8 @@ export class CteAssist {
 
 	// Composite key identifying one specific table *occurrence* -- its name plus whatever alias (if
 	// any) that particular occurrence was given -- rather than just the bare table name. An aliased
-	// outer JOIN ("JOIN apphost b") and an unrelated, unaliased reference to the same underlying
-	// table name buried inside some other CTE's own body ("data2 AS (SELECT * FROM apphost)") are
+	// outer JOIN ("JOIN sitehost b") and an unrelated, unaliased reference to the same underlying
+	// table name buried inside some other CTE's own body ("data2 AS (SELECT * FROM sitehost)") are
 	// two entirely different occurrences and must never be conflated: see getInaccessibleTableNames.
 	static getTableKey(name: string, alias?: Nullable<string>): string {
 		return `${name.toLowerCase()}::${(alias ?? '').toLowerCase()}`;
@@ -261,7 +261,7 @@ export class CteAssist {
 
 	// Occurrence keys (getTableKey) of table references dt-sql-parser can positively confirm are OUT
 	// of scope at the cursor, per its own scope-depth accessibility tracking -- e.g. in "WITH data AS
-	// (SELECT fnam FROM appuser) SELECT | FROM data", SqlParser.parseTables (flat regex, no concept
+	// (SELECT firstnm FROM appuser) SELECT | FROM data", SqlParser.parseTables (flat regex, no concept
 	// of CTE-body boundaries) records both "data" and "appuser" as plain table references, but
 	// "appuser" is only reachable from inside data's own definition, not from the outer SELECT.
 	//
@@ -275,8 +275,8 @@ export class CteAssist {
 	// a CTE's own body, and again directly in the outer FROM), and if even one of those is genuinely
 	// in scope at the cursor, it must still be offered; a single inaccessible occurrence elsewhere
 	// must not veto that. Keying by (name, alias) rather than by bare name matters here: an outer
-	// "JOIN apphost b" being accessible must never rescue a completely unrelated, genuinely
-	// inaccessible bare "apphost" sitting inside some other CTE's body -- those are different
+	// "JOIN sitehost b" being accessible must never rescue a completely unrelated, genuinely
+	// inaccessible bare "sitehost" sitting inside some other CTE's body -- those are different
 	// occurrences (regression: this used to be keyed by bare name alone, which let exactly that kind
 	// of unrelated, unused CTE leak its own tables into the outer scope's results).
 	//

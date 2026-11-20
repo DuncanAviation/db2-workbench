@@ -22,7 +22,7 @@ suite('Library list changes against the fake driver', () => {
 	const DATABASE: FakeDatabase = {
 		...SAMPLE_DATABASE,
 		schemas: [
-			...defineFakeDatabase({ schemas: [{ name: 'QSYS', type: 'System' }, { name: 'QTEMP', type: 'User' }, { name: 'APPL' }] }).schemas,
+			...defineFakeDatabase({ schemas: [{ name: 'QSYS', type: 'System' }, { name: 'QTEMP', type: 'User' }, { name: 'PRODLIB' }] }).schemas,
 			...SAMPLE_DATABASE.schemas
 		]
 	};
@@ -63,26 +63,26 @@ suite('Library list changes against the fake driver', () => {
 
 		try {
 			await openSession(key, recorder);
-			await assertBothJobs(key, ['QSYS', 'QTEMP', 'APPL', 'SALES']);
+			await assertBothJobs(key, ['QSYS', 'QTEMP', 'PRODLIB', 'SALES']);
 			recorder.clear();
 
-			let info = await extension.connections.setLibraryList({ key: key, configId: TestSupport.CONFIG_ID }, ['SALES', 'archive', 'APPL']);
+			let info = await extension.connections.setLibraryList({ key: key, configId: TestSupport.CONFIG_ID }, ['SALES', 'archive', 'PRODLIB']);
 
 			// One plain CALL per job, the command bound as a value - never callProcedure(), which QCMDEXC's
 			// two overloads would refuse.
 			let commands = recorder.matching(QCMDEXC);
 			assert.deepStrictEqual(commands.map(statement => [statement.sql, statement.parameters.map(String)]), [
-				['CALL QSYS2.QCMDEXC(?)', ['CHGLIBL LIBL(QTEMP SALES ARCHIVE APPL)']],
-				['CALL QSYS2.QCMDEXC(?)', ['CHGLIBL LIBL(QTEMP SALES ARCHIVE APPL)']]
+				['CALL QSYS2.QCMDEXC(?)', ['CHGLIBL LIBL(QTEMP SALES ARCHIVE PRODLIB)']],
+				['CALL QSYS2.QCMDEXC(?)', ['CHGLIBL LIBL(QTEMP SALES ARCHIVE PRODLIB)']]
 			]);
 
-			await assertBothJobs(key, ['QSYS', 'QTEMP', 'SALES', 'ARCHIVE', 'APPL']);
+			await assertBothJobs(key, ['QSYS', 'QTEMP', 'SALES', 'ARCHIVE', 'PRODLIB']);
 
 			let changed = events.ofType(DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED);
 			assert.strictEqual(changed.length, 1);
-			assert.deepStrictEqual(changed[0].connectionInfo?.schemas.map(schema => schema.name), ['QSYS', 'QTEMP', 'SALES', 'ARCHIVE', 'APPL']);
+			assert.deepStrictEqual(changed[0].connectionInfo?.schemas.map(schema => schema.name), ['QSYS', 'QTEMP', 'SALES', 'ARCHIVE', 'PRODLIB']);
 			assert.strictEqual(changed[0].connectionInfo, info);
-			assert.deepStrictEqual(await sessionList(key), ['QSYS', 'QTEMP', 'SALES', 'ARCHIVE', 'APPL']);
+			assert.deepStrictEqual(await sessionList(key), ['QSYS', 'QTEMP', 'SALES', 'ARCHIVE', 'PRODLIB']);
 
 			// The statements reach the History tab as internal ones, so they leave the user's results alone.
 			let commandResults = events.ofType(DbConnectionEvent.EventType.RESULT).filter(event => QCMDEXC.test(event.parseResults?.originalSql.toLowerCase() ?? ''));
@@ -123,12 +123,12 @@ suite('Library list changes against the fake driver', () => {
 			assert.deepStrictEqual(recorder.matching(QCMDEXC).map(statement => String(statement.parameters[0])), [
 				'CHGLIBL LIBL(QTEMP ARCHIVE)',
 				'CHGLIBL LIBL(QTEMP ARCHIVE)',
-				'CHGLIBL LIBL(QTEMP APPL SALES)'
+				'CHGLIBL LIBL(QTEMP PRODLIB SALES)'
 			]);
 
-			await assertBothJobs(key, ['QSYS', 'QTEMP', 'APPL', 'SALES']);
+			await assertBothJobs(key, ['QSYS', 'QTEMP', 'PRODLIB', 'SALES']);
 			assert.strictEqual(events.ofType(DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED).length, 0);
-			assert.deepStrictEqual(await sessionList(key), ['QSYS', 'QTEMP', 'APPL', 'SALES']);
+			assert.deepStrictEqual(await sessionList(key), ['QSYS', 'QTEMP', 'PRODLIB', 'SALES']);
 		} finally {
 			events.stop();
 			await TestSupport.closeSessions(key);
@@ -151,7 +151,7 @@ suite('Library list changes against the fake driver', () => {
 			);
 
 			assert.strictEqual(recorder.matching(QCMDEXC).length, 1);
-			await assertBothJobs(key, ['QSYS', 'QTEMP', 'APPL', 'SALES']);
+			await assertBothJobs(key, ['QSYS', 'QTEMP', 'PRODLIB', 'SALES']);
 			assert.strictEqual(events.ofType(DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED).length, 0);
 		} finally {
 			events.stop();
@@ -240,14 +240,14 @@ suite('Library list changes against the fake driver', () => {
 			// job's whole user portion through CHGLIBL.
 			assert.deepStrictEqual(recorder.matching(QCMDEXC).map(statement => [statement.sql, statement.parameters.map(String)]), [
 				['CALL QSYS2.QCMDEXC(?)', ['ADDLIBLE LIB(ARCHIVE) POSITION(*LAST)']],
-				['CALL QSYS2.QCMDEXC(?)', ['CHGLIBL LIBL(QTEMP APPL SALES ARCHIVE)']]
+				['CALL QSYS2.QCMDEXC(?)', ['CHGLIBL LIBL(QTEMP PRODLIB SALES ARCHIVE)']]
 			]);
 
-			await assertBothJobs(key, ['QSYS', 'QTEMP', 'APPL', 'SALES', 'ARCHIVE']);
+			await assertBothJobs(key, ['QSYS', 'QTEMP', 'PRODLIB', 'SALES', 'ARCHIVE']);
 
 			let changed = await events.waitFor(DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED);
-			assert.deepStrictEqual(changed.connectionInfo?.schemas.map(schema => schema.name), ['QSYS', 'QTEMP', 'APPL', 'SALES', 'ARCHIVE']);
-			assert.deepStrictEqual(await sessionList(key), ['QSYS', 'QTEMP', 'APPL', 'SALES', 'ARCHIVE']);
+			assert.deepStrictEqual(changed.connectionInfo?.schemas.map(schema => schema.name), ['QSYS', 'QTEMP', 'PRODLIB', 'SALES', 'ARCHIVE']);
+			assert.deepStrictEqual(await sessionList(key), ['QSYS', 'QTEMP', 'PRODLIB', 'SALES', 'ARCHIVE']);
 		} finally {
 			events.stop();
 			await TestSupport.closeSessions(key);
@@ -268,7 +268,7 @@ suite('Library list changes against the fake driver', () => {
 			assert.strictEqual(events.ofType(DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED).length, 0);
 			assert.strictEqual(recorder.matching(/chglibl/).length, 0, 'an unchanged list is not copied to the worker');
 
-			await TestSupport.execute(key, 'values qsys2.qcmdexc(\'RMVLIBLE LIB(APPL)\')');
+			await TestSupport.execute(key, 'values qsys2.qcmdexc(\'RMVLIBLE LIB(PRODLIB)\')');
 			await events.waitFor(DbConnectionEvent.EventType.LIBRARY_LIST_CHANGED);
 			await assertBothJobs(key, ['QSYS', 'QTEMP', 'SALES']);
 		} finally {

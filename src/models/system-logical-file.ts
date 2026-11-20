@@ -13,7 +13,7 @@ export interface SystemLogicalFile {
 	/** SYSFILES.AP_TYPE as the system words it - "KEYED UNIQUE", "ARRIVAL" and so on. */
 	accessPathType?: string;
 	keyFieldCount?: number;
-	/** The key fields in order, as SYSPARTITIONINDEXSTAT.COLUMN_NAMES lists them ("CUSNO, WONO DESC"). Absent for
+	/** The key fields in order, as SYSPARTITIONINDEXSTAT.COLUMN_NAMES lists them ("CUSTNO, JOBNO DESC"). Absent for
 	 * an arrival-sequence file, or when the lookup found no index row for it. */
 	keyFields?: string;
 	/** SYSFILES.MAINT - *IMMED, *DLY or *REBLD. */

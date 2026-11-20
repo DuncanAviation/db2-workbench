@@ -11,14 +11,9 @@ import { SqlTokenizer } from './sql-tokenizer.js';
 // above the printer itself (e.g. in tokenizing or splitting), not the expected path for merely
 // unusual SQL.
 export class SqlDocumentFormatter {
-	// Whole-document formatting runs the same embedded-host-code extraction Format Selection does --
-	// a scratch ".sql" file used purely to reformat a pasted host-code snippet is a real workflow
-	// (Format Document must not behave differently from selecting-all-and-Format-Selection on the
-	// exact same text), and EmbeddedSqlExtractor.hasSqlKeyword/hasConcatenationGlue already no-op on
-	// anything that doesn't look like host-language string concatenation, so ordinary multi-
-	// statement DB2 SQL (including one that builds a dynamic statement with "||") passes through
-	// untouched -- see hasConcatenationGlue's "+"-only glue requirement for why "||" specifically
-	// doesn't trip this.
+	// Format Document and Format Selection run the same pipeline: a scratch ".sql" file used only to
+	// reformat SQL pasted from application code is a real workflow, and formatting all of it must give
+	// what selecting all of it and formatting the selection gives.
 	static formatDocumentText(text: string, options: SqlDocumentFormatter.Options): string {
 		return SqlDocumentFormatter.formatText(text, options);
 	}
@@ -27,45 +22,25 @@ export class SqlDocumentFormatter {
 		return SqlDocumentFormatter.formatText(text, options);
 	}
 
+	// The text is read as host code first (EmbeddedSqlExtractor). Text that isn't host code is SQL
+	// and formats as it is. Host code formats as the queries it builds, with any plain DB2 statement
+	// found among it, in source order; the host code itself is dropped. An extracted query has no ";"
+	// of its own (the host statement's ";" isn't SQL), so one is added after each query that isn't
+	// last, keeping it apart from the next statement when the result is formatted again.
 	private static formatText(text: string, options: SqlDocumentFormatter.Options): string {
 		try {
-			// Splits the *raw* text into statement spans before extraction runs, rather than running
-			// EmbeddedSqlExtractor once over the whole input -- extraction deliberately drops
-			// whatever sits outside the first/last string-or-template piece it finds (that's what
-			// strips a host language's own "String sql = ...;" declaration), so running it over two
-			// unrelated statements at once (one embedded-host-code block, one plain DB2 statement
-			// with no quotes at all) would treat the second statement as more of that declaration
-			// syntax and silently drop it. Extracting per span keeps each statement's fate
-			// independent, same as formatting itself already is.
-			let tokens = SqlTokenizer.tokenize(text);
-			let spans = SqlDocumentFormatter.joinHostStatements(SqlStatementSplitter.split(tokens));
+			let extraction = EmbeddedSqlExtractor.extract(text);
 
-			if(spans.length === 0) {
-				return text;
+			if(!extraction.hostCode) {
+				return SqlDocumentFormatter.formatSql(text, options) ?? text;
 			}
 
-			let separator = `\n${'\n'.repeat(Math.max(0, options.linesBetweenQueries))}`;
-			return spans
-				.map((span, index) => {
-					let spanText = span.map(token => token.text).join('');
-
-					try {
-						let extraction = EmbeddedSqlExtractor.extract(spanText);
-						let spanTokens = extraction.replaced ? SqlTokenizer.tokenize(extraction.sql) : span;
-						let formatted = SqlPrettyPrinter.formatTokens(spanTokens, options);
-
-						// EmbeddedSqlExtractor.extract never carries a ";" into its output -- it treats
-						// the one at the end of a host-code span as that language's own statement
-						// terminator, not part of the SQL, and drops it as declaration syntax. That's
-						// right when this is the last statement in the document, but every non-last span
-						// exists *because* SqlStatementSplitter found a top-level ";" ending it -- drop
-						// that here too and the next statement's text runs straight into this one with
-						// nothing to separate them, silently merging the two the next time this is parsed.
-						let isLastStatement = index === spans.length - 1;
-						return extraction.replaced && !isLastStatement ? `${formatted};` : formatted;
-					} catch {
-						return spanText;
-					}
+			let separator = SqlDocumentFormatter.separator(options);
+			let last = extraction.segments.length - 1;
+			return extraction.segments
+				.map((segment, index) => {
+					let formatted = SqlDocumentFormatter.formatSql(segment.sql, options) ?? segment.sql;
+					return segment.kind === 'extracted' && index < last && !formatted.trimEnd().endsWith(';') ? `${formatted};` : formatted;
 				})
 				.join(separator);
 		} catch {
@@ -73,35 +48,30 @@ export class SqlDocumentFormatter {
 		}
 	}
 
-	// A query built over several host statements ("let sql = ``;" then "sql += `SELECT ...`;" lines)
-	// is split on each ";" like any other text, and no one span then holds the glue that marks it as
-	// host code. A span that appends to the query (EmbeddedSqlExtractor.continuesConcatenation) is
-	// joined to the span before it, but only when the joined text really extracts - otherwise each
-	// span is left to format alone, so a joined span never reaches the printer as several statements.
-	private static joinHostStatements(spans: SqlTokenizer.SqlToken[][]): SqlTokenizer.SqlToken[][] {
-		let joined: SqlTokenizer.SqlToken[][] = [];
-		let textOf = (span: SqlTokenizer.SqlToken[]) => span.map(token => token.text).join('');
-		let index = 0;
+	// Tokenizes once, splits into statements and formats each on its own, so a failure formatting one
+	// statement leaves it as written without taking its neighbours with it. SqlPrettyPrinter.formatTokens
+	// never throws itself; the try/catch here guards what runs above it. Undefined when the text holds
+	// no statement at all.
+	private static formatSql(text: string, options: SqlDocumentFormatter.Options): string | undefined {
+		let spans = SqlStatementSplitter.split(SqlTokenizer.tokenize(text));
 
-		while(index < spans.length) {
-			let end = index + 1;
-
-			while(end < spans.length && EmbeddedSqlExtractor.continuesConcatenation(textOf(spans[end]))) {
-				end++;
-			}
-
-			let run = spans.slice(index, end);
-
-			if(run.length > 1 && EmbeddedSqlExtractor.extract(run.map(textOf).join('')).replaced) {
-				joined.push(run.flat());
-			} else {
-				joined.push(...run);
-			}
-
-			index = end;
+		if(spans.length === 0) {
+			return undefined;
 		}
 
-		return joined;
+		return spans
+			.map(span => {
+				try {
+					return SqlPrettyPrinter.formatTokens(span, options);
+				} catch {
+					return span.map(token => token.text).join('');
+				}
+			})
+			.join(SqlDocumentFormatter.separator(options));
+	}
+
+	private static separator(options: SqlDocumentFormatter.Options): string {
+		return `\n${'\n'.repeat(Math.max(0, options.linesBetweenQueries))}`;
 	}
 }
 

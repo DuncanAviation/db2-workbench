@@ -6,7 +6,9 @@
 // clauses) can't silently drift out of sync between features.
 export class KeywordTable {
 	static readonly TABLE_KEYWORDS = [
-		'FROM', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN', 'CROSS JOIN', 'UPDATE', 'INTO'
+		'FROM', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN', 'CROSS JOIN',
+		// DB2 for i's exception joins: the rows of one table with no match in the other.
+		'EXCEPTION JOIN', 'LEFT EXCEPTION JOIN', 'RIGHT EXCEPTION JOIN', 'UPDATE', 'INTO'
 	];
 
 	static readonly COLUMN_KEYWORDS = [

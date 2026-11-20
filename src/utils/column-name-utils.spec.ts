@@ -87,7 +87,7 @@ describe('ColumnNameUtils', () => {
 	});
 
 	describe('find / findSystemColumn', () => {
-		let columns = [{systemName: 'DPCD', sqlName: 'DEPARTMENT_CODE'}, EMPLOYEE_CODE];
+		let columns = [{systemName: 'DEPTCD', sqlName: 'DEPARTMENT_CODE'}, EMPLOYEE_CODE];
 
 		it('finds a catalog column by either name', () => {
 			expect(ColumnNameUtils.findSystemColumn(columns, 'EMPLOYEE_CODE')).to.equal(EMPLOYEE_CODE);

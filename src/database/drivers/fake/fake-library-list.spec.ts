@@ -8,7 +8,7 @@ const DATABASE = defineFakeDatabase({
 	schemas: [
 		{ name: 'QSYS', type: 'System' },
 		{ name: 'SALES' },
-		{ name: 'APPL' },
+		{ name: 'PRODLIB' },
 		{ name: 'ARCHIVE', onLibraryList: false }
 	]
 });
@@ -21,7 +21,7 @@ async function libraryList(connection: DbDriverConnection): Promise<string[]> {
 describe('FakeLibraryList', () => {
 	it('starts from the fixture\'s library list', async () => {
 		let connection = await new FakeDriver({ database: DATABASE }).connect();
-		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'APPL:USER']);
+		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'PRODLIB:USER']);
 	});
 
 	// The point of keeping the list per connection: a session's main and worker jobs are separate jobs.
@@ -30,21 +30,21 @@ describe('FakeLibraryList', () => {
 		let main = await driver.connect();
 		let worker = await driver.connect();
 
-		await main.query({ sql: 'CALL QSYS2.QCMDEXC(?)', parameters: ['CHGLIBL LIBL(APPL ARCHIVE)'] });
+		await main.query({ sql: 'CALL QSYS2.QCMDEXC(?)', parameters: ['CHGLIBL LIBL(PRODLIB ARCHIVE)'] });
 
-		expect(await libraryList(main)).to.deep.equal(['QSYS:SYSTEM', 'APPL:USER', 'ARCHIVE:USER']);
-		expect(await libraryList(worker)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'APPL:USER']);
+		expect(await libraryList(main)).to.deep.equal(['QSYS:SYSTEM', 'PRODLIB:USER', 'ARCHIVE:USER']);
+		expect(await libraryList(worker)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'PRODLIB:USER']);
 	});
 
 	it('applies CHGLIBL, ADDLIBLE and RMVLIBLE, from a literal or a bound command', async () => {
 		let connection = await new FakeDriver({ database: DATABASE }).connect();
 
 		await connection.query({ sql: 'CALL QSYS2.QCMDEXC(\'ADDLIBLE LIB(ARCHIVE) POSITION(*LAST)\')' });
-		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'APPL:USER', 'ARCHIVE:USER']);
+		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'PRODLIB:USER', 'ARCHIVE:USER']);
 
 		await connection.query({ sql: 'CALL QSYS2.QCMDEXC(?)', parameters: ['rmvlible lib(sales)'] });
 		await connection.query({ sql: 'CALL QSYS2.QCMDEXC(?)', parameters: ['ADDLIBLE LIB(QTEMP)'] });
-		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'QTEMP:USER', 'APPL:USER', 'ARCHIVE:USER']);
+		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'QTEMP:USER', 'PRODLIB:USER', 'ARCHIVE:USER']);
 
 		await connection.query({ sql: 'CALL QSYS2.QCMDEXC(?)', parameters: ['CHGLIBL LIBL(*NONE)'] });
 		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM']);
@@ -61,7 +61,7 @@ describe('FakeLibraryList', () => {
 			expect(error.driverErrors?.[0]?.state).to.equal('38501');
 		}
 
-		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'APPL:USER']);
+		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'SALES:USER', 'PRODLIB:USER']);
 	});
 
 	it('returns 1 or -1 from the scalar function form, as it does live', async () => {
@@ -72,7 +72,7 @@ describe('FakeLibraryList', () => {
 
 		let succeeded = <Record<string, unknown>[]>await connection.query({ sql: 'values qsys2.qcmdexc(\'ADDLIBLE LIB(ARCHIVE)\')' });
 		expect(Object.values(succeeded[0])).to.deep.equal([1]);
-		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'ARCHIVE:USER', 'SALES:USER', 'APPL:USER']);
+		expect(await libraryList(connection)).to.deep.equal(['QSYS:SYSTEM', 'ARCHIVE:USER', 'SALES:USER', 'PRODLIB:USER']);
 	});
 
 	it('throws on a CL command it doesn\'t understand rather than accepting it', async () => {

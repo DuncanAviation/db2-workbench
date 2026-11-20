@@ -79,7 +79,7 @@ describe('sql-import-fragments', () => {
 			let loaded = fragment('one', {
 				columns: [{name: 'EMNO', type: 'CHAR', nullable: true}],
 				primaryKeyColumns: ['EMNO'],
-				foreignKeys: [{columns: ['EMNO'], referencedSchema: 'ACME', referencedTable: 'EMPXTND', referencedColumns: ['EMPTCD']}]
+				foreignKeys: [{columns: ['EMNO'], referencedSchema: 'ACME', referencedTable: 'EMPEXTRA', referencedColumns: ['EXTRACD']}]
 			});
 
 			let merged = mergeSqlImportFragments([storedTable('one', 'ACME', 'APPUSER')], [loaded]);
@@ -87,31 +87,31 @@ describe('sql-import-fragments', () => {
 			expect(merged).to.have.lengthOf(1);
 			expect(merged[0].columns.map(column => column.name)).to.deep.equal(['EMNO']);
 			expect(merged[0].primaryKeyColumns).to.deep.equal(['EMNO']);
-			expect(merged[0].foreignKeys[0].referencedTable).to.equal('EMPXTND');
+			expect(merged[0].foreignKeys[0].referencedTable).to.equal('EMPEXTRA');
 		});
 
 		it('only fills the entry belonging to the import the fragment came from', () => {
 			let merged = mergeSqlImportFragments(
 				[storedTable('one', 'ACME', 'APPUSER'), storedTable('two', 'ACME', 'APPUSER')],
-				[fragment('two', {primaryKeyColumns: ['UID']})]
+				[fragment('two', {primaryKeyColumns: ['LOGINID']})]
 			);
 
 			expect(merged[0].primaryKeyColumns).to.deep.equal([]);
-			expect(merged[1].primaryKeyColumns).to.deep.equal(['UID']);
+			expect(merged[1].primaryKeyColumns).to.deep.equal(['LOGINID']);
 		});
 
 		// A table the import's own Tables statement never returned, but DB2 has - the relationship still
 		// belongs on it, so it arrives as a table of its own rather than being dropped.
 		it('synthesizes a transient table for a fragment with no stored entry', () => {
 			let loaded = fragment('one', {
-				table: 'APPUSJB',
-				foreignKeys: [{columns: ['UID'], referencedSchema: 'ACME', referencedTable: 'APPUSER', referencedColumns: ['UID']}]
+				table: 'USERJOB',
+				foreignKeys: [{columns: ['LOGINID'], referencedSchema: 'ACME', referencedTable: 'APPUSER', referencedColumns: ['LOGINID']}]
 			});
 
 			let merged = mergeSqlImportFragments([], [loaded]);
 
 			expect(merged).to.have.lengthOf(1);
-			expect(merged[0].name).to.equal('APPUSJB');
+			expect(merged[0].name).to.equal('USERJOB');
 			expect(merged[0].schema).to.equal('ACME');
 			expect(merged[0].provenance).to.deep.equal({
 				importId: 'one',

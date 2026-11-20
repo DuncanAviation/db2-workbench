@@ -167,6 +167,17 @@ suite('SQL Formatting Provider', () => {
 		assert.ok(!text.includes('String sql'), 'expected the host language\'s own declaration syntax to be dropped');
 	});
 
+	test('expands a partial selection inside pasted host code to every statement that builds the query', async () => {
+		let content = 'sql += `SELECT id `;\nsql += `FROM widget `;\nif (active) {\n\tsql += `WHERE active = 1`;\n}\n';
+		let document = await vscode.workspace.openTextDocument({language: 'sql', content});
+		let editor = await vscode.window.showTextDocument(document);
+		let fromIndex = content.indexOf('FROM');
+		editor.selection = new vscode.Selection(document.positionAt(fromIndex), document.positionAt(fromIndex + 'FROM'.length));
+		let text = await formatThroughProvider(editor, 'selection');
+		assert.ok(!/sql \+=|`/.test(text), `expected all of the host code to be replaced, got: ${text}`);
+		assert.ok(/^select id\nfrom widget\n-- if \(active\)\nwhere active = 1/i.test(text), `expected the whole query, got: ${text}`);
+	});
+
 	test('expands a partial selection to the whole enclosing statement', async () => {
 		let content = 'select id from employees where active = 1;\nselect id from departments;';
 		let document = await vscode.workspace.openTextDocument({language: 'sql', content});
@@ -190,7 +201,7 @@ suite('SQL Formatting Provider', () => {
 	});
 
 	test('strips leading indentation on the first line of an embedded-SQL paste, not just blank lines', async () => {
-		let content = '\t\t\t`select rcid, rcdsts, usrtype, fnam, lnam, mnam, prfnam, email ` +\n\t\t\t`from appuser ` +\n\t\t\t`where 1 = 1 `;';
+		let content = '\t\t\t`select id, status, kind, first, last, middle, alias, email ` +\n\t\t\t`from appuser ` +\n\t\t\t`where 1 = 1 `;';
 		let document = await vscode.workspace.openTextDocument({language: 'sql', content});
 		let editor = await vscode.window.showTextDocument(document);
 		editor.selection = new vscode.Selection(document.positionAt(0), document.positionAt(content.length));
@@ -200,7 +211,7 @@ suite('SQL Formatting Provider', () => {
 	});
 
 	test('formats a whole document that is nothing but a pasted embedded-SQL snippet, same as Format Selection would', async () => {
-		let content = '\t\t\t`select rcid, rcdsts, usrtype, fnam, lnam, mnam, prfnam, email ` +\n\t\t\t`from appuser ` +\n\t\t\t`where 1 = 1 `';
+		let content = '\t\t\t`select id, status, kind, first, last, middle, alias, email ` +\n\t\t\t`from appuser ` +\n\t\t\t`where 1 = 1 `';
 		let document = await vscode.workspace.openTextDocument({language: 'sql', content});
 		let editor = await vscode.window.showTextDocument(document);
 		let text = await formatThroughProvider(editor, 'document');
@@ -210,7 +221,7 @@ suite('SQL Formatting Provider', () => {
 	});
 
 	test('does not drop a second, unrelated statement when the first is an embedded-SQL paste', async () => {
-		let content = '\t\t`select rcid ` +\n\t\t`from appuser ` +\n\t\t`where 1 = 1 `\n\t\t;\n\nselect id\nfrom departments;';
+		let content = '\t\t`select id ` +\n\t\t`from appuser ` +\n\t\t`where 1 = 1 `\n\t\t;\n\nselect id\nfrom departments;';
 		let document = await vscode.workspace.openTextDocument({language: 'sql', content});
 		let editor = await vscode.window.showTextDocument(document);
 		let text = await formatThroughProvider(editor, 'document');
@@ -218,7 +229,7 @@ suite('SQL Formatting Provider', () => {
 	});
 
 	test('keeps a semicolon after an embedded-SQL statement when another statement follows, but drops it when nothing follows', async () => {
-		let content = '\t\t`select rcid ` +\n\t\t`from appuser `\n\t\t;\n\nselect id\nfrom departments;';
+		let content = '\t\t`select id ` +\n\t\t`from appuser `\n\t\t;\n\nselect id\nfrom departments;';
 		let document = await vscode.workspace.openTextDocument({language: 'sql', content});
 		let editor = await vscode.window.showTextDocument(document);
 		let text = await formatThroughProvider(editor, 'document');

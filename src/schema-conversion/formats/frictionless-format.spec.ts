@@ -138,8 +138,8 @@ describe('frictionlessFormat.export()', () => {
 
 	describe('length constraints', () => {
 		it('sets minLength and maxLength to the same value for a fixed-width CHAR column', () => {
-			let table = resolvedTable({columns: [resolvedColumn({systemName: 'UID', dataType: 'CHAR', length: 10})]});
-			let field = exportedField(table, 'UID');
+			let table = resolvedTable({columns: [resolvedColumn({systemName: 'LOGINID', dataType: 'CHAR', length: 10})]});
+			let field = exportedField(table, 'LOGINID');
 			expect(field.constraints?.minLength).to.equal(10);
 			expect(field.constraints?.maxLength).to.equal(10);
 		});
@@ -288,20 +288,20 @@ describe('frictionlessFormat.import()', () => {
 			let table = resolvedTable({
 				schema: 'ACME', name: 'APPUSER',
 				columns: [
-					resolvedColumn({systemName: 'RCID', sqlName: 'ACCT_RECORDID', dataType: 'DECIMAL', length: undefined, precision: 9, scale: 0}),
-					resolvedColumn({systemName: 'UID', sqlName: 'ACCT_UNIVERSALID', dataType: 'CHAR', length: 10, nulls: 'N'})
+					resolvedColumn({systemName: 'RECNO', sqlName: 'ACCT_RECORDNO', dataType: 'DECIMAL', length: undefined, precision: 9, scale: 0}),
+					resolvedColumn({systemName: 'LOGINID', sqlName: 'ACCT_LOGINID', dataType: 'CHAR', length: 10, nulls: 'N'})
 				],
 				keys: [
-					resolvedTableKey({constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'UID'}),
-					resolvedTableKey({constraintName: 'APPUSER_RCID', constraintType: 'UNIQUE', systemColumnName: 'RCID'})
+					resolvedTableKey({constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'LOGINID'}),
+					resolvedTableKey({constraintName: 'APPUSER_RECNO', constraintType: 'UNIQUE', systemColumnName: 'RECNO'})
 				]
 			});
 
 			let [reimported] = await frictionlessFormat.import(frictionlessFormat.export([table]));
 
 			expect(reimported.columns).to.have.length(2);
-			expect(reimported.primaryKeyColumns).to.deep.equal(['UID']);
-			expect(reimported.uniqueKeys).to.deep.equal([{columns: ['RCID']}]);
+			expect(reimported.primaryKeyColumns).to.deep.equal(['LOGINID']);
+			expect(reimported.uniqueKeys).to.deep.equal([{columns: ['RECNO']}]);
 		});
 	});
 });

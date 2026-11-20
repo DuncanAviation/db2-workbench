@@ -51,10 +51,10 @@ function issueCount(issues: {kind: string; count: number}[], kind: string): numb
 
 describe('convertSqlImportTableRows', () => {
 	it('reads a table with every fact mapped', () => {
-		let rows: SqlImportRow[] = [{SCHEMA: 'ACME', TABLENAME: 'APPUSER', LONGNAME: 'ACCT_MASTER', LABEL: 'Users'}];
+		let rows: SqlImportRow[] = [{SCHEMA: 'ACME', TABLENAME: 'APPUSER', LONGNAME: 'ACCT_PROFILE', LABEL: 'Users'}];
 		let result = convertSqlImportTableRows(rows, TABLE_MAPPING);
 
-		expect(result.tables).to.eql([{schema: 'ACME', name: 'APPUSER', sqlName: 'ACCT_MASTER', description: 'Users'}]);
+		expect(result.tables).to.eql([{schema: 'ACME', name: 'APPUSER', sqlName: 'ACCT_PROFILE', description: 'Users'}]);
 		expect(result.stats.importedCount).to.equal(1);
 		expect(result.stats.issues).to.be.empty;
 	});
@@ -100,13 +100,13 @@ describe('convertSqlImportColumnRows', () => {
 	it('reads columns, booleans and the primary key', () => {
 		let rows: SqlImportRow[] = [
 			{SCHEMA: 'ACME', TABLENAME: 'APPUSER', COLNAME: 'EMNO', COLTYPE: 'CHAR(4)', NULLS: 'N', PK: 'Y', POS: 1},
-			{SCHEMA: 'ACME', TABLENAME: 'APPUSER', COLNAME: 'UID', COLTYPE: 'DECIMAL(9,0)', NULLS: 'YES', PK: '0', POS: 2}
+			{SCHEMA: 'ACME', TABLENAME: 'APPUSER', COLNAME: 'LOGINID', COLTYPE: 'DECIMAL(9,0)', NULLS: 'YES', PK: '0', POS: 2}
 		];
 
 		let result = convertSqlImportColumnRows(rows, COLUMN_MAPPING, tables);
 		let columns = forTable(result.columns, 'ACME', 'APPUSER');
 
-		expect(columns.map(column => column.name)).to.eql(['EMNO', 'UID']);
+		expect(columns.map(column => column.name)).to.eql(['EMNO', 'LOGINID']);
 		expect(columns[0]).to.include({type: 'CHAR(4)', nullable: false, colNo: 1});
 		expect(columns[1].nullable).to.be.true;
 		expect(result.primaryKeyColumns.get(sqlImportTableKey('ACME', 'APPUSER'))).to.eql(['EMNO']);
@@ -173,23 +173,23 @@ describe('convertSqlImportColumnRows', () => {
 describe('convertSqlImportRelationshipRows', () => {
 	let tables = known(
 		sqlImportTableKey('ACME', 'APPUSER'),
-		sqlImportTableKey('ACME', 'EMPXTND'),
-		sqlImportTableKey('ACME', 'APPUSJB')
+		sqlImportTableKey('ACME', 'EMPEXTRA'),
+		sqlImportTableKey('ACME', 'USERJOB')
 	);
 
 	it('builds one single-column relationship per row when no key name is mapped', () => {
 		let rows: SqlImportRow[] = [
-			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'EMNO', SCHEMA2: 'ACME', NAME2: 'EMPXTND', COLNAME2: 'EMPTCD'},
-			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'UID', SCHEMA2: 'ACME', NAME2: 'APPUSJB', COLNAME2: 'UID'}
+			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'EMNO', SCHEMA2: 'ACME', NAME2: 'EMPEXTRA', COLNAME2: 'EXTRACD'},
+			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'LOGINID', SCHEMA2: 'ACME', NAME2: 'USERJOB', COLNAME2: 'LOGINID'}
 		];
 
 		let result = convertSqlImportRelationshipRows(rows, RELATIONSHIP_MAPPING, tables);
 		let foreignKeys = forTable(result.foreignKeys, 'ACME', 'APPUSER');
 
 		expect(foreignKeys).to.have.lengthOf(2);
-		expect(foreignKeys[0]).to.include({referencedSchema: 'ACME', referencedTable: 'EMPXTND'});
+		expect(foreignKeys[0]).to.include({referencedSchema: 'ACME', referencedTable: 'EMPEXTRA'});
 		expect(foreignKeys[0].columns).to.eql(['EMNO']);
-		expect(foreignKeys[0].referencedColumns).to.eql(['EMPTCD']);
+		expect(foreignKeys[0].referencedColumns).to.eql(['EXTRACD']);
 		// Never synthesized - an unnamed relationship has no constraint name to claim.
 		expect(foreignKeys[0].name).to.be.undefined;
 	});
@@ -197,8 +197,8 @@ describe('convertSqlImportRelationshipRows', () => {
 	it('groups a composite key by Foreign Key Name, ordered by Key Position', () => {
 		let mapping: Record<string, SqlImportTarget> = {...RELATIONSHIP_MAPPING, FKNAME: 'foreignKeyName', KEYPOS: 'keyPosition'};
 		let rows: SqlImportRow[] = [
-			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'B', SCHEMA2: 'ACME', NAME2: 'APPUSJB', COLNAME2: 'PB', FKNAME: 'FK1', KEYPOS: 2},
-			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'A', SCHEMA2: 'ACME', NAME2: 'APPUSJB', COLNAME2: 'PA', FKNAME: 'FK1', KEYPOS: 1}
+			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'B', SCHEMA2: 'ACME', NAME2: 'USERJOB', COLNAME2: 'PB', FKNAME: 'FK1', KEYPOS: 2},
+			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'A', SCHEMA2: 'ACME', NAME2: 'USERJOB', COLNAME2: 'PA', FKNAME: 'FK1', KEYPOS: 1}
 		];
 
 		let result = convertSqlImportRelationshipRows(rows, mapping, tables);
@@ -212,7 +212,7 @@ describe('convertSqlImportRelationshipRows', () => {
 
 	it('dedupes a repeated key name and position', () => {
 		let mapping: Record<string, SqlImportTarget> = {...RELATIONSHIP_MAPPING, FKNAME: 'foreignKeyName', KEYPOS: 'keyPosition'};
-		let row: SqlImportRow = {SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'A', SCHEMA2: 'ACME', NAME2: 'APPUSJB', COLNAME2: 'PA', FKNAME: 'FK1', KEYPOS: 1};
+		let row: SqlImportRow = {SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'A', SCHEMA2: 'ACME', NAME2: 'USERJOB', COLNAME2: 'PA', FKNAME: 'FK1', KEYPOS: 1};
 		let result = convertSqlImportRelationshipRows([row, {...row}], mapping, tables);
 
 		expect(forTable(result.foreignKeys, 'ACME', 'APPUSER')[0].columns).to.eql(['A']);
@@ -220,7 +220,7 @@ describe('convertSqlImportRelationshipRows', () => {
 	});
 
 	it('dedupes an identical unnamed relationship', () => {
-		let row: SqlImportRow = {SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'UID', SCHEMA2: 'ACME', NAME2: 'APPUSJB', COLNAME2: 'UID'};
+		let row: SqlImportRow = {SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'LOGINID', SCHEMA2: 'ACME', NAME2: 'USERJOB', COLNAME2: 'LOGINID'};
 		let result = convertSqlImportRelationshipRows([row, {...row}], RELATIONSHIP_MAPPING, tables);
 
 		expect(result.foreignKeys.get(sqlImportTableKey('ACME', 'APPUSER'))).to.have.lengthOf(1);
@@ -230,7 +230,7 @@ describe('convertSqlImportRelationshipRows', () => {
 	it('validates referential actions and drops anything else', () => {
 		let mapping: Record<string, SqlImportTarget> = {...RELATIONSHIP_MAPPING, UPD: 'updateRule', DEL: 'deleteRule'};
 		let rows: SqlImportRow[] = [
-			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'A', SCHEMA2: 'ACME', NAME2: 'APPUSJB', COLNAME2: 'PA', UPD: 'cascade', DEL: 'explode'}
+			{SCHEMA1: 'ACME', NAME1: 'APPUSER', COLNAME1: 'A', SCHEMA2: 'ACME', NAME2: 'USERJOB', COLNAME2: 'PA', UPD: 'cascade', DEL: 'explode'}
 		];
 
 		let result = convertSqlImportRelationshipRows(rows, mapping, tables);

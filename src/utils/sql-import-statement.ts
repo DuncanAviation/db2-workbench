@@ -8,7 +8,7 @@ import { SqlImportValidator } from './sql-import-validator.js';
 //
 //   select * from (<user sql>) SRC
 //   where (SRC."SCHEMA1" = 'ACME' and SRC."NAME1" = 'APPUSER')
-//      or (SRC."SCHEMA1" = 'ACME' and SRC."NAME1" = 'APPUSJB')
+//      or (SRC."SCHEMA1" = 'ACME' and SRC."NAME1" = 'USERJOB')
 //
 // OR chains rather than a row-value IN list, for maximum portability across systems. Multiple tables
 // needed at once are batched into one statement by the caller passing them all here.

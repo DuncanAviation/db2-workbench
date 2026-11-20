@@ -132,7 +132,7 @@ describe('diagram-column-labels', () => {
 		});
 
 		it('adds Identity before Primary Key for a column that is both', () => {
-			expect(columnTooltipLines({...legacyColumn('RCID'), primaryKey: true, identity: true})).to.deep.equal([
+			expect(columnTooltipLines({...legacyColumn('RECNO'), primaryKey: true, identity: true})).to.deep.equal([
 				{label: 'Type', value: 'CHAR(10)'},
 				{label: 'Identity', value: 'Yes'},
 				{label: 'Primary Key', value: 'Yes'}

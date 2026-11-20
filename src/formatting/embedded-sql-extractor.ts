@@ -1,431 +1,262 @@
-// Detects SQL pasted in from host-language source (Java/C# "..." + var + "..." concatenation, or
-// a JS template literal with ${...} interpolation) and extracts the clean SQL text, replacing each
-// interpolated variable/expression with a DB2 named parameter (":variableName") derived from it.
-// Runs on raw text, before tokenization -- SqlDocumentFormatter calls this on both the whole-
-// document and the selection/range formatting path, since a scratch ".sql" file used only to
-// reformat a pasted host-code snippet is a real workflow and Format Document must match Format
-// Selection on the same text. hasSqlKeyword/hasConcatenationGlue keep this from tripping on
-// ordinary DB2 SQL -- see hasConcatenationGlue's "+"-only glue requirement.
+import { HostCodeLexer } from './host-code-lexer.js';
+import { HostCodeParser } from './host-code-parser.js';
+
+type Token = HostCodeLexer.Token;
+type Statement = HostCodeParser.Statement;
+
+// Finds the SQL in text pasted in from application code - Java, C# or JavaScript/TypeScript that
+// builds a query out of string literals - and turns it back into the SQL it builds. The text is read
+// as host code first (HostCodeLexer, HostCodeParser), so the host language's own strings, comments
+// and statements are understood in its terms, and only then is any of it handed on as SQL.
+//
+// A query is followed through its variable: "let sql = `...`", "sql += `...`", "sql = sql + ...",
+// "sb.append(...)", or a bare concatenation with no variable at all. A concatenated value becomes a
+// DB2 named parameter (":customerId"), and one spliced into a quoted SQL literal ("= '" + code + "'")
+// replaces the literal. A host "//" comment becomes a "--" comment where it was. Appends under a
+// condition are kept, with a "-- if (...)" comment naming the condition; an else branch's appends
+// (and every case after a switch's first) are commented out, since including two alternatives would
+// usually make the SQL invalid. Every other host statement is dropped, and a plain DB2 statement found
+// among the host code is passed through unchanged.
+//
+// The text counts as host code only when something in it is unmistakably host syntax building SQL:
+// "+=" or ".append(" with a SQL string, a template literal, two SQL strings joined with "+", or a
+// declaration ("String sql = ..."). DB2 itself joins strings with "||", never "+", so a plain DB2
+// script - dynamic SQL built with "||" included - is reported as not host code and left alone.
 export class EmbeddedSqlExtractor {
-	// Real SQL keywords must appear *inside* one of the quoted/template segments specifically --
-	// this is what rejects ordinary string concatenation like "Hello " + name + "!" (no keyword in
-	// either string) while still accepting "SELECT * FROM t WHERE id = " + id. GROUP BY/ORDER BY/
-	// HAVING/JOIN/UNION close the one real gap SELECT/INSERT/UPDATE/DELETE/FROM/WHERE leave: code
-	// that concatenates only a trailing clause onto an already-built base query variable (e.g.
-	// baseQuery + " ORDER BY " + col), where none of those six ever appear in the same call. Kept as
-	// full phrases ("GROUP\s+BY", not bare "GROUP") so they don't match ordinary English prose that
-	// happens to get concatenated -- "LIMIT" was deliberately left out for exactly that reason (too
-	// common a word on its own, unlike these).
-	private static readonly SQL_KEYWORD_PATTERN = /\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|JOIN|UNION)\b/i;
+	// A SQL keyword must appear inside one of the strings for them to be SQL at all, which rejects
+	// ordinary string building ("Hello " + name). Phrases rather than bare words ("GROUP BY", not
+	// "GROUP") so English prose isn't mistaken for SQL; "LIMIT" is left out for the same reason.
+	private static readonly SQL_KEYWORD_PATTERN = /\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|JOIN|UNION|VALUES|MERGE|CALL)\b/i;
+	// Words that put a declaration's left-hand side in SQL PL rather than host code
+	// ("IF x THEN SET v = 'SELECT ...'").
+	private static readonly SQL_PL_WORDS = /^(?:SET|THEN|ELSE|DO|BEGIN|DECLARE|IF|WHEN|DEFAULT)$/i;
+	private static readonly APPEND_METHODS = /^(?:append|Append|AppendLine|concat)$/;
 
 	static extract(text: string): EmbeddedSqlExtractor.Result {
-		let pieces = EmbeddedSqlExtractor.splitIntoPieces(text);
-		let stringPieces = pieces.filter(piece => piece.kind !== 'code');
-
-		if(stringPieces.length === 0
-			|| !EmbeddedSqlExtractor.hasSqlKeyword(stringPieces)
-			|| !EmbeddedSqlExtractor.hasConcatenationGlue(pieces)) {
-			return {sql: text, replaced: false, parameters: []};
-		}
-
-		let firstIndex = pieces.findIndex(piece => piece.kind !== 'code');
-		let lastIndex = -1;
-		pieces.forEach((piece, index) => {
-			if(piece.kind !== 'code') {
-				lastIndex = index;
-			}
-		});
-
-		// Leading/trailing "code" outside the first/last string or template literal is the host
-		// language's own declaration syntax (e.g. "String sql = " ... ";"), not concatenation glue --
-		// deliberately dropped rather than turned into a nonsense parameter, except a value the trailing
-		// code still appends (see renderTrailingAppend).
-		let relevant = pieces.slice(firstIndex, lastIndex + 1);
-		let parameters: EmbeddedSqlExtractor.Parameter[] = [];
-		let usedNames = new Set<string>();
-
-		let paramFor = (expression: string): string => {
-			let trimmed = expression.trim();
-
-			if(trimmed.length === 0) {
-				return '';
-			}
-
-			let existing = parameters.find(parameter => parameter.expression === trimmed);
-
-			if(existing) {
-				return `:${existing.name}`;
-			}
-
-			let name = EmbeddedSqlExtractor.deriveParamName(trimmed, usedNames);
-			usedNames.add(name);
-			parameters.push({expression: trimmed, name});
-			return `:${name}`;
-		};
-
-		let sqlParts = relevant.map(piece => {
-			if(piece.kind === 'string') {
-				return piece.content ?? '';
-			}
-
-			if(piece.kind === 'template') {
-				return (piece.segments ?? [])
-					.map(segment => segment.kind === 'literal' ? segment.text : paramFor(segment.text))
-					.join('');
-			}
-
-			return EmbeddedSqlExtractor.renderCodeGlue(piece.content ?? '', paramFor);
-		});
-
-		let trailing = pieces[lastIndex + 1];
-
-		if(trailing?.kind === 'code') {
-			sqlParts.push(EmbeddedSqlExtractor.renderTrailingAppend(trailing.content ?? '', paramFor));
-		}
-
-		// The trailing "\s+" collapse below normalizes the original source's incidental
-		// indentation/line breaks into single spaces -- fine for ordinary tokens, but a "--" line
-		// comment (renderCodeGlue's conversion of a host "//" comment) relies on an actual "\n" to
-		// stop consuming input; collapse that newline away and the comment silently swallows every
-		// clause after it. LINE_COMMENT_NEWLINE is a sentinel (not "\s") standing in for that
-		// required newline so it survives the collapse, restored to a real "\n" immediately after.
-		let sql = sqlParts.join('')
-			.replace(/\s+/g, ' ')
-			.replace(new RegExp(EmbeddedSqlExtractor.LINE_COMMENT_NEWLINE, 'g'), '\n')
-			.trim();
-
-		return {sql, replaced: true, parameters};
+		let statements = HostCodeParser.parse(HostCodeLexer.lex(text));
+		let walker = new StatementWalker(text);
+		walker.walk(statements, {conditions: []}, undefined);
+		return walker.result();
 	}
 
-	// True when the host code ahead of this text's first string piece appends to a query built by an
-	// earlier statement ("sql += `...`", "sql = sql + ...", "sb.append(...)"), after any comments.
-	// SqlDocumentFormatter splits a document on ";" before extracting, so it uses this to put back
-	// together a query built over several host statements, which no single statement shows as glue.
-	static continuesConcatenation(text: string): boolean {
-		let pieces = EmbeddedSqlExtractor.splitIntoPieces(text);
-		let firstIndex = pieces.findIndex(piece => piece.kind !== 'code');
+	static hasSqlKeyword(text: string): boolean {
+		return EmbeddedSqlExtractor.SQL_KEYWORD_PATTERN.test(text);
+	}
 
-		if(firstIndex === -1) {
-			return false;
+	static isSqlPlWord(word: string): boolean {
+		return EmbeddedSqlExtractor.SQL_PL_WORDS.test(word);
+	}
+
+	static isAppendMethod(word: string): boolean {
+		return EmbeddedSqlExtractor.APPEND_METHODS.test(word);
+	}
+}
+
+export namespace EmbeddedSqlExtractor {
+	export interface Parameter {
+		// The host expression the parameter stands for, as written.
+		readonly expression: string;
+		readonly name: string;
+	}
+
+	// A piece of the result in source order: a query rebuilt from host code ("extracted"), or a plain
+	// DB2 statement found among the host code, its text unchanged ("sql").
+	export interface Segment {
+		readonly kind: 'extracted' | 'sql';
+		readonly sql: string;
+		readonly parameters: Parameter[];
+		// The source range the segment came from: every host statement that built the query.
+		readonly start: number;
+		readonly end: number;
+	}
+
+	export interface Result {
+		// False when the text isn't host code at all; segments is then empty and the text is SQL as it is.
+		readonly hostCode: boolean;
+		readonly segments: Segment[];
+	}
+}
+
+interface Condition {
+	readonly label: string;
+	readonly id: object;
+}
+
+interface WalkContext {
+	// The conditions an append is nested under, outermost first.
+	readonly conditions: Condition[];
+	// Set inside an else branch (or a later switch case): appends there are written as comments.
+	readonly alternative?: Condition;
+}
+
+interface Operand {
+	readonly kind: 'string' | 'template' | 'comment' | 'value';
+	readonly tokens: Token[];
+}
+
+// The SQL text of one query as it is put together, tracking whether it currently ends inside an
+// open '...' literal so a value spliced into one can replace it.
+class QueryText {
+	text = '';
+	private inString = false;
+	private closeAfterParameter = false;
+
+	constructor(private readonly nameFor: (expression: string) => string) {}
+
+	literal(literal: string): void {
+		if(literal.length === 0) {
+			return;
 		}
 
-		let leading = pieces.slice(0, firstIndex).map(piece => piece.content ?? '').join('')
-			.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ' ');
-		return EmbeddedSqlExtractor.normalizeGlue(leading).trim().startsWith('+');
-	}
+		if(this.closeAfterParameter) {
+			this.closeAfterParameter = false;
 
-	private static readonly LINE_COMMENT_NEWLINE = String.fromCharCode(1);
-
-	// Renders a concatenation-glue "code" piece (e.g. " + //note\ncustId + "), separating a
-	// trailing host-language comment from the actual parameter expressions around it -- without
-	// this, a "//note" would fall straight into splitTopLevelPlus/paramFor and come out as a
-	// nonsense ":param" placeholder instead of being recognized as a comment at all. A "//" line
-	// comment becomes a DB2 "--" comment (see LINE_COMMENT_NEWLINE above for why its terminating
-	// newline is protected); a "/* ... */" block comment is already valid SQL and passed through
-	// verbatim -- its own "*/" terminator means it needs no such protection.
-	private static renderCodeGlue(code: string, paramFor: (expression: string) => string): string {
-		let fragments: string[] = [];
-		let i = 0;
-		let exprStart = 0;
-
-		let flushExpr = (end: number) => {
-			if(end <= exprStart) {
-				return;
+			// "= '" + code + "'": the literal closes right after the value, so the value replaced it.
+			if(literal.startsWith(`'`) && !literal.startsWith(`''`)) {
+				literal = literal.substring(1);
+			} else {
+				// "LIKE '%" + name + "%'": the value sat inside the literal, which now carries on.
+				this.text += ` || '`;
+				this.inString = true;
 			}
-
-			let rendered = EmbeddedSqlExtractor.splitTopLevelPlus(EmbeddedSqlExtractor.normalizeGlue(code.substring(exprStart, end)))
-				.map(paramFor)
-				.filter(part => part.length > 0)
-				.join(' ');
-
-			if(rendered.length > 0) {
-				fragments.push(rendered);
-			}
-		};
-
-		while(i < code.length) {
-			if(code[i] === '/' && code[i + 1] === '/') {
-				flushExpr(i);
-				let start = i + 2;
-				let end = code.indexOf('\n', start);
-				let commentText = (end === -1 ? code.substring(start) : code.substring(start, end)).trim();
-				fragments.push(`--${commentText}${EmbeddedSqlExtractor.LINE_COMMENT_NEWLINE}`);
-				i = end === -1 ? code.length : end;
-				exprStart = i;
-				continue;
-			}
-
-			if(code[i] === '/' && code[i + 1] === '*') {
-				flushExpr(i);
-				let end = code.indexOf('*/', i + 2);
-				let commentEnd = end === -1 ? code.length : end + 2;
-				fragments.push(code.substring(i, commentEnd));
-				i = commentEnd;
-				exprStart = i;
-				continue;
-			}
-
-			i++;
 		}
 
-		flushExpr(code.length);
-		return fragments.join(' ');
+		this.text += literal;
+
+		if(((literal.match(/'/g)?.length ?? 0) % 2) === 1) {
+			this.inString = !this.inString;
+		}
 	}
 
-	// Character-by-character scan splitting "text" into ordered string/template/code pieces.
-	// Handles a lone "\"-escaped character inside a string/template just enough to not mistake it
-	// for the closing delimiter -- full per-language unescaping is out of scope for v1, the escaped
-	// text is carried through into the piece's content as-is.
-	private static splitIntoPieces(text: string): EmbeddedSqlExtractor.Piece[] {
-		let pieces: EmbeddedSqlExtractor.Piece[] = [];
-		let i = 0;
-		let codeStart = 0;
+	parameter(expression: string): void {
+		let name = this.nameFor(expression);
 
-		let flushCode = (end: number) => {
-			if(end > codeStart) {
-				pieces.push({kind: 'code', content: text.substring(codeStart, end)});
-			}
-		};
-
-		while(i < text.length) {
-			let char = text[i];
-
-			if(char === `'` || char === '"') {
-				flushCode(i);
-				let quote = char;
-				let content = '';
-				i++;
-
-				while(i < text.length && text[i] !== quote) {
-					if(text[i] === '\\' && i + 1 < text.length) {
-						content += text.substring(i, i + 2);
-						i += 2;
-						continue;
-					}
-
-					content += text[i];
-					i++;
-				}
-
-				i++;
-				pieces.push({kind: 'string', content});
-				codeStart = i;
-				continue;
-			}
-
-			if(char === '`') {
-				flushCode(i);
-				i++;
-				let segments: EmbeddedSqlExtractor.TemplateSegment[] = [];
-				let literal = '';
-
-				while(i < text.length && text[i] !== '`') {
-					if(text[i] === '\\' && i + 1 < text.length) {
-						literal += text.substring(i, i + 2);
-						i += 2;
-						continue;
-					}
-
-					if(text[i] === '$' && text[i + 1] === '{') {
-						if(literal.length > 0) {
-							segments.push({kind: 'literal', text: literal});
-							literal = '';
-						}
-
-						i += 2;
-						let depth = 1;
-						let exprStart = i;
-
-						while(i < text.length && depth > 0) {
-							if(text[i] === '{') {
-								depth++;
-							} else if(text[i] === '}') {
-								depth--;
-							}
-
-							if(depth > 0) {
-								i++;
-							}
-						}
-
-						segments.push({kind: 'expr', text: text.substring(exprStart, i)});
-						i++;
-						continue;
-					}
-
-					literal += text[i];
-					i++;
-				}
-
-				if(literal.length > 0) {
-					segments.push({kind: 'literal', text: literal});
-				}
-
-				i++;
-				pieces.push({kind: 'template', segments});
-				codeStart = i;
-				continue;
-			}
-
-			i++;
+		if(name.length === 0) {
+			return;
 		}
 
-		flushCode(text.length);
-		return pieces;
-	}
+		if(this.closeAfterParameter) {
+			this.text += ` || :${name}`;
+			return;
+		}
 
-	private static hasSqlKeyword(stringPieces: EmbeddedSqlExtractor.Piece[]): boolean {
-		return stringPieces.some(piece => {
-			if(piece.kind === 'string') {
-				return EmbeddedSqlExtractor.SQL_KEYWORD_PATTERN.test(piece.content ?? '');
+		if(this.inString) {
+			if(this.text.endsWith(`'`) && !this.text.endsWith(`''`)) {
+				this.text = this.text.slice(0, -1);
+			} else {
+				this.text += `' || `;
 			}
 
-			return (piece.segments ?? []).some(segment => segment.kind === 'literal' && EmbeddedSqlExtractor.SQL_KEYWORD_PATTERN.test(segment.text));
-		});
-	}
-
-	// True when at least one "code" piece sits strictly between two string/template pieces (plain
-	// concatenation, e.g. "..." + var + "...") or a template literal has at least one "${...}"
-	// interpolation -- either counts as "SQL assembled via host-language concatenation" rather than
-	// a single bare string literal that merely happens to contain SQL-shaped text. The plain-code
-	// case additionally requires a literal "+" in that glue (Java/C#/JS's concatenation operator) --
-	// DB2 itself concatenates with "||", never "+", so a real dynamic-SQL statement built with
-	// "'...' || col || '...'" (a normal DB2-for-i pattern for EXECUTE IMMEDIATE) has SQL keywords
-	// sitting inside its string pieces same as host-code would, but its glue never contains "+" and
-	// so is correctly left alone -- this is what makes it safe for whole-document formatting to run
-	// this check unconditionally rather than only on an explicit selection.
-	private static hasConcatenationGlue(pieces: EmbeddedSqlExtractor.Piece[]): boolean {
-		let hasInterpolation = pieces.some(piece => piece.kind === 'template' && (piece.segments ?? []).some(segment => segment.kind === 'expr'));
-
-		if(hasInterpolation) {
-			return true;
+			this.inString = false;
+			this.closeAfterParameter = true;
 		}
 
-		let firstIndex = pieces.findIndex(piece => piece.kind !== 'code');
-		let lastIndex = -1;
-		pieces.forEach((piece, index) => {
-			if(piece.kind !== 'code') {
-				lastIndex = index;
-			}
-		});
+		this.text += `:${name}`;
+	}
 
-		if(firstIndex === -1 || lastIndex <= firstIndex) {
-			return false;
+	// A comment on a line of its own, as it was between host statements.
+	comment(text: string): void {
+		if(this.text.length > 0 && !this.text.endsWith('\n')) {
+			this.text += '\n';
 		}
 
-		return pieces.slice(firstIndex + 1, lastIndex).some(piece => piece.kind === 'code' && EmbeddedSqlExtractor.normalizeGlue(piece.content ?? '').includes('+'));
+		this.text += `-- ${text}\n`;
 	}
 
-	// An lvalue: "sql", "this.sql", "query.text".
-	private static readonly LVALUE = String.raw`[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*`;
-	// "sql +=" (JS/TS/Java/C#), and "sql = sql +" - both just append to the query being built.
-	private static readonly COMPOUND_APPEND = new RegExp(String.raw`${EmbeddedSqlExtractor.LVALUE}\s*\+=`, 'g');
-	private static readonly SELF_APPEND = new RegExp(String.raw`(${EmbeddedSqlExtractor.LVALUE})\s*(?<![=!<>])=(?!=)\s*\1\s*\+`, 'g');
-	// A StringBuilder call, chained ").append(" or a new statement's "sb.append(" (C#'s "Append" too).
-	private static readonly APPEND_CALL = new RegExp(String.raw`(?:${EmbeddedSqlExtractor.LVALUE}\s*)?\.\s*append\s*\(`, 'gi');
-
-	// Rewrites the ways a host language appends to a query across statements into plain "+"
-	// concatenation, so the glue between two string pieces of
-	//   sql += `SELECT ... `;
-	//   // a comment
-	//   sql += `FROM ...`;
-	// is only "+" and not ";", "sql" and "=" parameters. The glue is split into host statements on
-	// ";"; a statement that appends nothing (no "+" once rewritten, e.g. "int x = 5") is dropped. An
-	// append call's own parentheses are left unbalanced by the rewrite and trimmed in splitTopLevelPlus.
-	private static normalizeGlue(code: string): string {
-		return code.split(';')
-			.map(statement => statement
-				.replace(EmbeddedSqlExtractor.SELF_APPEND, ' + ')
-				.replace(EmbeddedSqlExtractor.COMPOUND_APPEND, ' + ')
-				.replace(EmbeddedSqlExtractor.APPEND_CALL, ' + '))
-			.filter(statement => statement.includes('+'))
-			.join(' + ');
-	}
-
-	// The code after the last string piece is mostly the statement's end (";", ");"), but it can
-	// still append one last value - "... WHERE id = " + id; or .append(id); - which belongs in the
-	// SQL. Only that statement's own text is read (up to its ";", or its line without one), and only
-	// when it starts by appending, so whatever code follows the query is still dropped. It never
-	// counts toward hasConcatenationGlue: one SQL string followed by "+ x" is also plain DB2 ('1' + 2).
-	private static renderTrailingAppend(code: string, paramFor: (expression: string) => string): string {
-		let parts = EmbeddedSqlExtractor.trailingAppendParts(code);
-		return parts.length > 0 ? ' ' + parts.map(paramFor).join(' ') : '';
-	}
-
-	private static trailingAppendParts(code: string): string[] {
-		let end = code.indexOf(';');
-		let statement = code.substring(0, end === -1 ? code.search(/\n|$/) : end);
-		let normalized = EmbeddedSqlExtractor.normalizeGlue(statement).replace(/^[\s)]*/, '');
-		return normalized.startsWith('+') ? EmbeddedSqlExtractor.splitTopLevelPlus(normalized) : [];
-	}
-
-	// Drops the parentheses an append call leaves behind once normalizeGlue has rewritten it -
-	// "sb.append(id)" becomes " + id)" - without touching a balanced "(a ? b : c)".
-	private static trimUnbalancedParens(part: string): string {
-		let trimmed = part.trim();
-		let depth = (text: string) => [...text].reduce((total, char) => total + (char === '(' ? 1 : char === ')' ? -1 : 0), 0);
-
-		while(trimmed.endsWith(')') && depth(trimmed) < 0) {
-			trimmed = trimmed.slice(0, -1).trim();
+	// A comment from the concatenation itself: a "//" comment ends its line, a block comment stays inline.
+	hostComment(token: Token): void {
+		if(token.type === 'blockComment') {
+			this.text += ` ${token.text} `;
+			return;
 		}
 
-		while(trimmed.startsWith('(') && depth(trimmed) > 0) {
-			trimmed = trimmed.slice(1).trim();
-		}
+		let text = token.text.replace(/^(?:\/\/|--)/, '').trimEnd();
+		this.text += ` --${text}\n`;
+	}
+}
 
-		return trimmed;
+class Query {
+	readonly parameters: EmbeddedSqlExtractor.Parameter[] = [];
+	readonly body: QueryText;
+	hasSql = false;
+	hostEvidence = false;
+	start = Number.MAX_SAFE_INTEGER;
+	end = 0;
+	private readonly announced = new Set<object>();
+	private readonly alternativesStarted = new Set<object>();
+
+	constructor() {
+		this.body = new QueryText(expression => this.nameFor(expression));
 	}
 
-	// Splits a concatenation-glue "code" piece (e.g. " + a + b + ") on top-level "+" -- so
-	// "... + a + b + ..." between two string literals produces two parameters, not one nonsense
-	// blob -- respecting parens/brackets/braces so a method call's own "+" ("foo(a + b)") isn't
-	// mistaken for a top-level concatenation operator.
-	private static splitTopLevelPlus(code: string): string[] {
-		let parts: string[] = [];
-		let current = '';
-		let depth = 0;
+	cover(start: number, end: number): void {
+		this.start = Math.min(this.start, start);
+		this.end = Math.max(this.end, end);
+	}
 
-		for(let char of code) {
-			if(char === '(' || char === '[' || char === '{') {
-				depth++;
-			} else if(char === ')' || char === ']' || char === '}') {
-				depth = Math.max(0, depth - 1);
+	// Writes one appended piece under "context": after a comment for each condition not yet named, or,
+	// in an alternative branch, as a comment of its own.
+	emit(context: WalkContext, build: (target: QueryText) => void): void {
+		let alternative = context.alternative;
+
+		if(alternative) {
+			let scratch = this.newText();
+			build(scratch);
+			let text = scratch.text.replace(/\s+/g, ' ').trim();
+
+			if(text.length > 0) {
+				let first = !this.alternativesStarted.has(alternative.id);
+				this.alternativesStarted.add(alternative.id);
+				this.body.comment(first ? `${alternative.label}: ${text}` : text);
 			}
 
-			if(char === '+' && depth === 0) {
-				parts.push(current);
-				current = '';
-				continue;
-			}
-
-			current += char;
+			return;
 		}
 
-		parts.push(current);
-		return parts.map(EmbeddedSqlExtractor.trimUnbalancedParens).filter(part => part.length > 0);
+		for(let condition of context.conditions) {
+			if(!this.announced.has(condition.id)) {
+				this.announced.add(condition.id);
+				this.body.comment(condition.label);
+			}
+		}
+
+		build(this.body);
 	}
 
-	private static deriveParamName(expression: string, usedNames: Set<string>): string {
-		let base = EmbeddedSqlExtractor.baseParamName(expression);
+	// A separate run of text that names its parameters the same way this query does.
+	newText(): QueryText {
+		return new QueryText(expression => this.nameFor(expression));
+	}
 
-		if(!usedNames.has(base)) {
-			return base;
+	private nameFor(expression: string): string {
+		let trimmed = expression.trim();
+
+		if(trimmed.length === 0) {
+			return '';
 		}
 
+		let existing = this.parameters.find(parameter => parameter.expression === trimmed);
+
+		if(existing) {
+			return existing.name;
+		}
+
+		let base = Query.baseName(trimmed);
+		let name = base;
 		let suffix = 2;
 
-		while(usedNames.has(`${base}${suffix}`)) {
-			suffix++;
+		while(this.parameters.some(parameter => parameter.name === name)) {
+			name = `${base}${suffix++}`;
 		}
 
-		return `${base}${suffix}`;
+		this.parameters.push({expression: trimmed, name});
+		return name;
 	}
 
-	// Bare identifier -> itself; "a.b"/"getFoo()"/"isFoo()" -> the meaningful last segment (an
-	// accessor prefix is stripped and the next letter lower-cased, e.g. "getCustomerId()" ->
-	// "customerId"); anything else (a ternary, an array index, a compound expression) -> a generic
-	// "param", disambiguated by deriveParamName's numeric suffixing if more than one occurs.
-	private static baseParamName(expression: string): string {
+	// A bare identifier names itself; "a.b", "getFoo()" and "isFoo()" are named after their last
+	// member ("getCustomerId()" -> "customerId"); anything else (a ternary, an index, arithmetic) is a
+	// generic "param", numbered when there's more than one.
+	private static baseName(expression: string): string {
 		if(/^[A-Za-z_$][\w$]*$/.test(expression)) {
 			return expression;
 		}
@@ -438,35 +269,661 @@ export class EmbeddedSqlExtractor {
 		}
 
 		let propertyAccess = expression.match(/\.([A-Za-z_$][\w$]*)$/);
-
-		if(propertyAccess) {
-			return propertyAccess[1];
-		}
-
-		return 'param';
+		return propertyAccess ? propertyAccess[1] : 'param';
 	}
 }
 
-export namespace EmbeddedSqlExtractor {
-	export interface Parameter {
-		readonly expression: string;
-		readonly name: string;
+class StatementWalker {
+	private readonly queries: Query[] = [];
+	private readonly sqlStatements: HostCodeParser.Sql[] = [];
+	// The query each host variable currently holds ("sql", "this.sql", "sb").
+	private readonly variables = new Map<string, Query>();
+	// Comments between host statements, waiting for the query the next statement appends to.
+	private pendingComments: Token[] = [];
+
+	constructor(private readonly text: string) {}
+
+	result(): EmbeddedSqlExtractor.Result {
+		let sqlQueries = this.queries.filter(query => query.hasSql);
+
+		if(!sqlQueries.some(query => query.hostEvidence)) {
+			return {hostCode: false, segments: []};
+		}
+
+		let segments: EmbeddedSqlExtractor.Segment[] = [
+			...sqlQueries.map(query => ({
+				kind: 'extracted' as const,
+				sql: query.body.text.trim(),
+				parameters: query.parameters,
+				start: query.start,
+				end: query.end
+			})),
+			...this.sqlStatements.map(statement => ({
+				kind: 'sql' as const,
+				sql: this.text.substring(statement.start, statement.end),
+				parameters: [],
+				start: statement.start,
+				end: statement.end
+			}))
+		];
+
+		return {hostCode: true, segments: segments.sort((a, b) => a.start - b.start)};
 	}
 
-	export interface Result {
-		readonly sql: string;
-		readonly replaced: boolean;
-		readonly parameters: Parameter[];
+	// "outer" is the top-level statement being walked, whose range a query built inside it covers.
+	walk(statements: Statement[], context: WalkContext, outer: Statement | undefined): void {
+		for(let statement of statements) {
+			let top = outer ?? statement;
+
+			switch(statement.kind) {
+				case 'comment':
+					this.pendingComments.push(statement.token);
+					break;
+				case 'block':
+					this.walk(statement.body, context, top);
+					break;
+				case 'sql':
+					this.pendingComments = [];
+					this.sqlStatements.push(statement);
+					break;
+				case 'control':
+					this.walkControl(statement, context, top);
+					break;
+				case 'simple':
+					if(!this.walkSimple(statement.tokens, context, top)) {
+						this.pendingComments = [];
+					}
+
+					break;
+			}
+		}
 	}
 
-	export interface TemplateSegment {
-		readonly kind: 'literal' | 'expr';
-		readonly text: string;
+	private walkControl(statement: HostCodeParser.Control, context: WalkContext, top: Statement): void {
+		let header = statement.header.replace(/\s+/g, ' ').trim();
+		let keyword = statement.keyword;
+
+		if(keyword === 'if') {
+			this.walk(statement.body, this.within(context, `if ${header}`), top);
+
+			if(statement.elseBody) {
+				let elseIf = statement.elseBody.length === 1 && statement.elseBody[0].kind === 'control' && statement.elseBody[0].keyword === 'if'
+					? statement.elseBody[0]
+					: undefined;
+
+				if(elseIf) {
+					// The else-if's own condition, and anything after it, are alternatives to the first branch.
+					let elseIfLabel = `else if ${elseIf.header.replace(/\s+/g, ' ').trim()}`;
+					this.walk(elseIf.body, this.alternative(context, elseIfLabel), top);
+
+					if(elseIf.elseBody) {
+						this.walk(elseIf.elseBody, this.alternative(context, 'else'), top);
+					}
+				} else {
+					this.walk(statement.elseBody, this.alternative(context, 'else'), top);
+				}
+			}
+
+			return;
+		}
+
+		if(keyword === 'switch') {
+			this.walkSwitch(statement, context, top);
+			return;
+		}
+
+		if(keyword === 'else' || keyword === 'catch') {
+			this.walk(statement.body, this.alternative(context, `${keyword} ${header}`.trim()), top);
+			return;
+		}
+
+		// Loops show their header; try/finally/using and the like only group statements.
+		let isLoop = ['for', 'foreach', 'while', 'do'].includes(keyword);
+		let label = keyword === 'do' ? `do ... while ${header}` : `${keyword} ${header}`;
+		this.walk(statement.body, isLoop ? this.within(context, label) : context, top);
 	}
 
-	export interface Piece {
-		readonly kind: 'string' | 'template' | 'code';
-		readonly content?: string;
-		readonly segments?: TemplateSegment[];
+	// A switch's first case is kept and each later one is an alternative, the same as if/else.
+	private walkSwitch(statement: HostCodeParser.Control, context: WalkContext, top: Statement): void {
+		let caseContext: WalkContext = context;
+		let cases = 0;
+
+		for(let child of statement.body) {
+			if(child.kind === 'simple') {
+				let label = StatementWalker.caseLabel(child.tokens);
+
+				if(label) {
+					cases++;
+					let caseText = label.text.replace(/\s+/g, ' ').trim();
+					caseContext = cases === 1 ? this.within(context, `switch ${statement.header.replace(/\s+/g, ' ').trim()} ${caseText}`) : this.alternative(context, caseText);
+
+					if(!this.walkSimple(label.rest, caseContext, top)) {
+						this.pendingComments = [];
+					}
+
+					continue;
+				}
+			}
+
+			this.walk([child], caseContext, top);
+		}
+	}
+
+	private within(context: WalkContext, label: string): WalkContext {
+		return context.alternative ? context : {conditions: [...context.conditions, {label, id: {}}]};
+	}
+
+	private alternative(context: WalkContext, label: string): WalkContext {
+		return context.alternative ? context : {conditions: context.conditions, alternative: {label, id: {}}};
+	}
+
+	// Interprets one simple statement; true when it appended to a query.
+	private walkSimple(tokens: Token[], context: WalkContext, top: Statement): boolean {
+		let significant = tokens.filter(token => token.type !== 'whitespace');
+		let assignment = StatementWalker.findTopLevel(significant, token => token.type === 'punctuation' && (token.text === '=' || token.text === '+='));
+
+		if(assignment !== -1) {
+			return this.walkAssignment(significant.slice(0, assignment), significant[assignment].text, significant.slice(assignment + 1), context, top);
+		}
+
+		let appendCall = StatementWalker.parseAppendCalls(significant);
+
+		if(appendCall) {
+			let query = this.queryFor(appendCall.target);
+			let appended = false;
+
+			for(let argument of appendCall.arguments) {
+				appended = this.append(query, StatementWalker.operands(argument), context, top, 'append') || appended;
+			}
+
+			if(appended && query.hasSql) {
+				query.hostEvidence = true;
+			}
+
+			return appended;
+		}
+
+		return this.walkExpressionStatement(significant, context, top);
+	}
+
+	private walkAssignment(left: Token[], operator: string, right: Token[], context: WalkContext, top: Statement): boolean {
+		let target = StatementWalker.assignmentTarget(left);
+
+		if(!target) {
+			return false;
+		}
+
+		let operands = StatementWalker.operands(right);
+
+		if(operator === '+=') {
+			let targetQuery = this.queryFor(target);
+			let compoundAppended = this.append(targetQuery, operands, context, top, 'append');
+
+			if(compoundAppended && operands.some(operand => operand.kind === 'string' || operand.kind === 'template')) {
+				targetQuery.hostEvidence = true;
+			}
+
+			return compoundAppended;
+		}
+
+		// "sql = sql + ...", or "full = sql + ..." carrying an existing query on under a new name.
+		let first = operands[0];
+		let firstName = first?.kind === 'value' ? StatementWalker.lvalueText(first.tokens) : undefined;
+		let continued = firstName != null ? this.variables.get(firstName) : undefined;
+
+		if(continued && operands.length > 1) {
+			this.variables.set(target, continued);
+			let continuedAppended = this.append(continued, operands.slice(1), context, top, 'append');
+
+			if(continuedAppended) {
+				continued.hostEvidence = true;
+			}
+
+			return continuedAppended;
+		}
+
+		// "rows = await db.query(`...`, params)": the SQL is an argument, not the assigned value.
+		if(!operands.some(operand => operand.kind === 'string' || operand.kind === 'template')) {
+			return this.walkExpressionStatement(right, context, top);
+		}
+
+		let query = this.newQuery(target);
+		let appended = this.append(query, operands, context, top, 'new');
+
+		if(StatementWalker.isDeclaration(left) || StatementWalker.joinsStrings(operands)) {
+			query.hostEvidence = true;
+		}
+
+		return appended;
+	}
+
+	// A statement that is no assignment and no append call: "return ...", a call such as
+	// "db.query(`...`, params)", or a bare concatenation. The SQL is the expression around the first
+	// string holding a SQL keyword.
+	private walkExpressionStatement(significant: Token[], context: WalkContext, top: Statement): boolean {
+		let expression = StatementWalker.sqlExpression(significant);
+
+		if(!expression) {
+			return false;
+		}
+
+		let operands = StatementWalker.operands(expression);
+		let firstName = operands[0]?.kind === 'value' ? StatementWalker.lvalueText(operands[0].tokens) : undefined;
+		let continued = firstName != null ? this.variables.get(firstName) : undefined;
+
+		if(continued && operands.length > 1) {
+			return this.append(continued, operands.slice(1), context, top, 'append');
+		}
+
+		let query = this.newQuery(undefined);
+		let appended = this.append(query, operands, context, top, 'new');
+
+		if(StatementWalker.joinsStrings(operands)) {
+			query.hostEvidence = true;
+		}
+
+		return appended;
+	}
+
+	// Appends "operands" to "query"; true when anything was appended. A new query ("new") skips the
+	// values ahead of its first string - "base + ' ORDER BY ' + col" can't show what "base" holds.
+	private append(query: Query, operands: Operand[], context: WalkContext, top: Statement, mode: 'new' | 'append'): boolean {
+		let firstString = operands.findIndex(operand => operand.kind === 'string' || operand.kind === 'template');
+		let relevant = mode === 'new' && firstString > 0 ? operands.slice(firstString) : operands;
+
+		if(relevant.length === 0) {
+			return false;
+		}
+
+		for(let operand of relevant) {
+			if(operand.kind === 'template') {
+				let token = operand.tokens[0];
+
+				if(EmbeddedSqlExtractor.hasSqlKeyword(token.value ?? '')) {
+					query.hasSql = true;
+					query.hostEvidence = true;
+				}
+			} else if(operand.kind === 'string') {
+				let token = operand.tokens[0];
+
+				if(EmbeddedSqlExtractor.hasSqlKeyword(token.value ?? '')) {
+					query.hasSql = true;
+
+					// No DB2 string looks like a C# verbatim string or a Java text block.
+					if(/^(?:@"|""")/.test(token.text)) {
+						query.hostEvidence = true;
+					}
+				}
+			}
+		}
+
+		query.cover(top.start, top.end);
+
+		for(let comment of this.pendingComments) {
+			query.cover(comment.start, comment.end);
+			query.emit({conditions: []}, body => body.comment(StatementWalker.commentText(comment)));
+		}
+
+		this.pendingComments = [];
+		query.emit(context, body => StatementWalker.render(body, relevant, context, query));
+		return true;
+	}
+
+	private static render(body: QueryText, operands: Operand[], context: WalkContext, query: Query): void {
+		for(let operand of operands) {
+			switch(operand.kind) {
+				case 'string':
+					body.literal(operand.tokens[0].value ?? '');
+					break;
+				case 'template':
+					for(let segment of operand.tokens[0].segments ?? []) {
+						if(segment.kind === 'literal') {
+							body.literal(segment.text);
+						} else {
+							body.parameter(segment.text);
+						}
+					}
+
+					break;
+				case 'comment':
+					body.hostComment(operand.tokens[0]);
+					break;
+				case 'value':
+					StatementWalker.renderValue(body, operand.tokens, context, query);
+					break;
+			}
+		}
+	}
+
+	// A value concatenated into the SQL: a number stays as it is, a parenthesized concatenation is
+	// rendered in place, a "cond ? '...' : '...'" choosing between SQL strings keeps its first branch
+	// (the other as a comment), and anything else is a parameter.
+	private static renderValue(body: QueryText, tokens: Token[], context: WalkContext, query: Query): void {
+		let significant = tokens.filter(token => !HostCodeLexer.isTrivia(token));
+
+		if(significant.length === 1 && significant[0].type === 'number') {
+			body.literal(significant[0].text);
+			return;
+		}
+
+		let original = significant;
+
+		while(significant[0]?.text === '(' && StatementWalker.findClosing(significant, 0) === significant.length - 1) {
+			significant = significant.slice(1, -1);
+		}
+
+		if(significant !== original) {
+			let inner = StatementWalker.operands(significant);
+
+			if(inner.some(operand => operand.kind === 'string' || operand.kind === 'template')) {
+				StatementWalker.render(body, inner, context, query);
+				return;
+			}
+		}
+
+		let question = StatementWalker.findTopLevel(significant, token => token.text === '?');
+		let colon = question === -1 ? -1 : StatementWalker.findTopLevel(significant, (token, index) => index > question && token.text === ':');
+
+		if(question !== -1 && colon !== -1) {
+			let whenTrue = StatementWalker.operands(significant.slice(question + 1, colon));
+			let whenFalse = StatementWalker.operands(significant.slice(colon + 1));
+			let isSqlBranch = (branch: Operand[]) => branch.some(operand => operand.kind === 'string' || operand.kind === 'template');
+
+			if(isSqlBranch(whenTrue) || isSqlBranch(whenFalse)) {
+				body.comment(`if (${StatementWalker.sourceText(significant.slice(0, question))})`);
+				StatementWalker.render(body, whenTrue, context, query);
+				let scratch = query.newText();
+				StatementWalker.render(scratch, whenFalse, context, query);
+				let alternative = scratch.text.replace(/\s+/g, ' ').trim();
+				body.comment(alternative.length > 0 ? `else: ${alternative}` : 'else: (nothing)');
+				return;
+			}
+		}
+
+		body.parameter(StatementWalker.sourceText(tokens));
+	}
+
+	private queryFor(target: string): Query {
+		return this.variables.get(target) ?? this.newQuery(target);
+	}
+
+	private newQuery(target: string | undefined): Query {
+		let query = new Query();
+		this.queries.push(query);
+
+		if(target != null) {
+			this.variables.set(target, query);
+		}
+
+		return query;
+	}
+
+	private static commentText(token: Token): string {
+		if(token.type === 'blockComment') {
+			return token.text.replace(/^\/\*+|\*+\/$/g, '').replace(/\s+/g, ' ').trim();
+		}
+
+		return token.text.replace(/^(?:\/\/+|--)/, '').trim();
+	}
+
+	// "sql", "this.sql", "query.text": the variable an assignment's left-hand side names, after any
+	// type or "let"/"const"/"var", and before any TypeScript ": string" annotation.
+	private static assignmentTarget(left: Token[]): string | undefined {
+		let significant = left.filter(token => !HostCodeLexer.isTrivia(token));
+		let colon = StatementWalker.findTopLevel(significant, token => token.text === ':');
+		let name = colon === -1 ? significant : significant.slice(0, colon);
+		let chain: string[] = [];
+
+		for(let i = name.length - 1; i >= 0; i--) {
+			let token = name[i];
+
+			if(token.type === 'word' && (chain.length === 0 || chain[0] === '.')) {
+				chain.unshift(token.text);
+			} else if(token.text === '.' && chain.length > 0 && chain[0] !== '.') {
+				chain.unshift('.');
+			} else {
+				break;
+			}
+		}
+
+		return chain.length > 0 && chain[0] !== '.' ? chain.join('') : undefined;
+	}
+
+	// Whether an assignment's left-hand side declares the variable: "String sql", "let sql",
+	// "const sql: string", "var sb" - but not SQL PL's "IF x THEN SET v".
+	private static isDeclaration(left: Token[]): boolean {
+		let words = left.filter(token => token.type === 'word');
+
+		if(words.length < 2 || words.some(word => EmbeddedSqlExtractor.isSqlPlWord(word.text))) {
+			return false;
+		}
+
+		return left.every(token => HostCodeLexer.isTrivia(token) || token.type === 'word' || ['.', ':', '<', '>', '[', ']', ',', '?'].includes(token.text));
+	}
+
+	private static lvalueText(tokens: Token[]): string | undefined {
+		let significant = tokens.filter(token => !HostCodeLexer.isTrivia(token));
+		let isChain = significant.length > 0 && significant.every((token, index) => index % 2 === 0 ? token.type === 'word' : token.text === '.');
+		return isChain && significant.length % 2 === 1 ? significant.map(token => token.text).join('') : undefined;
+	}
+
+	// Two string pieces joined by "+": DB2 joins strings with "||", so this is host code.
+	private static joinsStrings(operands: Operand[]): boolean {
+		return operands.filter(operand => operand.kind === 'string' || operand.kind === 'template').length > 1;
+	}
+
+	// "sb.append(a).append(b)" (and C#'s Append/AppendLine): the builder's name and each call's argument.
+	private static parseAppendCalls(significant: Token[]): {target: string; arguments: Token[][]} | undefined {
+		let tokens = significant.filter(token => !HostCodeLexer.isComment(token));
+		let i = 0;
+		let target: string[] = [];
+
+		while(i < tokens.length && tokens[i].type === 'word' && !(tokens[i + 1]?.text === '(' && EmbeddedSqlExtractor.isAppendMethod(tokens[i].text))) {
+			target.push(tokens[i].text);
+
+			if(tokens[i + 1]?.text !== '.') {
+				return undefined;
+			}
+
+			target.push('.');
+			i += 2;
+		}
+
+		if(target.length === 0) {
+			return undefined;
+		}
+
+		target.pop();
+		let calls: Token[][] = [];
+
+		while(i < tokens.length && tokens[i].type === 'word' && EmbeddedSqlExtractor.isAppendMethod(tokens[i].text) && tokens[i + 1]?.text === '(') {
+			let close = StatementWalker.findClosing(tokens, i + 1);
+
+			if(close === -1) {
+				close = tokens.length;
+			}
+
+			calls.push(tokens.slice(i + 2, close));
+			i = close + 1;
+
+			if(tokens[i]?.text !== '.') {
+				break;
+			}
+
+			i++;
+		}
+
+		// Comments are dropped from the arguments above; the tokens between calls carry none worth keeping.
+		return calls.length > 0 && i >= tokens.length ? {target: target.join(''), arguments: calls} : undefined;
+	}
+
+	// The expression around the first string holding a SQL keyword: the whole statement, or the
+	// argument (between "(", "," and ")") it sits in, after a leading "return"/"await"/"yield".
+	private static sqlExpression(significant: Token[]): Token[] | undefined {
+		let index = significant.findIndex(token => HostCodeLexer.isString(token) && EmbeddedSqlExtractor.hasSqlKeyword(token.value ?? ''));
+
+		if(index === -1) {
+			return undefined;
+		}
+
+		let start = index;
+		let depth = 0;
+
+		while(start > 0) {
+			let token = significant[start - 1];
+
+			if(token.text === ')' || token.text === ']' || token.text === '}') {
+				depth++;
+			} else if(token.text === '(' || token.text === '[' || token.text === '{') {
+				if(depth === 0) {
+					break;
+				}
+
+				depth--;
+			} else if(depth === 0 && (token.text === ',' || token.text === '=>' || token.text === 'return' || token.text === 'await' || token.text === 'yield')) {
+				break;
+			}
+
+			start--;
+		}
+
+		let end = index;
+		depth = 0;
+
+		while(end < significant.length - 1) {
+			let token = significant[end + 1];
+
+			if(token.text === '(' || token.text === '[' || token.text === '{') {
+				depth++;
+			} else if(token.text === ')' || token.text === ']' || token.text === '}') {
+				if(depth === 0) {
+					break;
+				}
+
+				depth--;
+			} else if(depth === 0 && token.text === ',') {
+				break;
+			}
+
+			end++;
+		}
+
+		return significant.slice(start, end + 1);
+	}
+
+	// Splits an expression on its top-level "+" into strings, comments, and the values between them.
+	private static operands(tokens: Token[]): Operand[] {
+		let operands: Operand[] = [];
+		let current: Token[] = [];
+		let depth = 0;
+
+		let flush = () => {
+			let significant = current.filter(token => !HostCodeLexer.isTrivia(token));
+
+			if(significant.length === 1 && HostCodeLexer.isString(significant[0])) {
+				operands.push({kind: significant[0].type === 'template' ? 'template' : 'string', tokens: significant});
+			} else if(significant.length > 0) {
+				operands.push({kind: 'value', tokens: current});
+			}
+
+			current = [];
+		};
+
+		for(let token of tokens) {
+			if(token.type === 'punctuation') {
+				if(token.text === '(' || token.text === '[' || token.text === '{') {
+					depth++;
+				} else if(token.text === ')' || token.text === ']' || token.text === '}') {
+					depth = Math.max(0, depth - 1);
+				} else if(token.text === '+' && depth === 0) {
+					flush();
+					continue;
+				}
+			}
+
+			if(depth === 0 && HostCodeLexer.isComment(token)) {
+				flush();
+				operands.push({kind: 'comment', tokens: [token]});
+				continue;
+			}
+
+			current.push(token);
+		}
+
+		flush();
+		return operands;
+	}
+
+	private static caseLabel(tokens: Token[]): {text: string; rest: Token[]} | undefined {
+		let significant = tokens.filter(token => token.type !== 'whitespace');
+		let first = significant[0];
+
+		if(first?.type !== 'word' || (first.text !== 'case' && first.text !== 'default')) {
+			return undefined;
+		}
+
+		let colon = StatementWalker.findTopLevel(significant, token => token.text === ':');
+
+		if(colon === -1) {
+			return undefined;
+		}
+
+		return {text: significant.slice(0, colon).map(token => token.text).join(' '), rest: significant.slice(colon + 1)};
+	}
+
+	private static findTopLevel(tokens: Token[], test: (token: Token, index: number) => boolean): number {
+		let depth = 0;
+
+		for(let i = 0; i < tokens.length; i++) {
+			let token = tokens[i];
+
+			if(token.type === 'punctuation') {
+				if(token.text === '(' || token.text === '[' || token.text === '{') {
+					depth++;
+					continue;
+				}
+
+				if(token.text === ')' || token.text === ']' || token.text === '}') {
+					depth = Math.max(0, depth - 1);
+					continue;
+				}
+			}
+
+			if(depth === 0 && test(token, i)) {
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+	private static findClosing(tokens: Token[], open: number): number {
+		let depth = 0;
+
+		for(let i = open; i < tokens.length; i++) {
+			if(tokens[i].text === '(') {
+				depth++;
+			} else if(tokens[i].text === ')') {
+				depth--;
+
+				if(depth === 0) {
+					return i;
+				}
+			}
+		}
+
+		return -1;
+	}
+
+	private static sourceText(tokens: Token[]): string {
+		let text = '';
+		let previous: Token | undefined;
+
+		for(let token of tokens.filter(candidate => !HostCodeLexer.isComment(candidate))) {
+			text += previous && token.start > previous.end ? ` ${token.text}` : token.text;
+			previous = token;
+		}
+
+		return text.replace(/\s+/g, ' ').trim();
 	}
 }
