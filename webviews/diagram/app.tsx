@@ -9,7 +9,8 @@ import { Background, Panel, ReactFlow, useEdgesState, useNodesState } from '@xyf
 import type { Edge, Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './diagram.css';
-import type { DiagramExportFormat, DiagramInboundMessage, DiagramModel, DiagramRelationship, DiagramSchemaGroup, DiagramSyncOrphan, DiagramSyncResultTable, DiagramTreeTable, MissingRelationshipTarget, MissingTargetTable } from '../../src/webview-messages/diagram-messages';
+import type { DiagramExportFormat, DiagramInboundMessage, DiagramModel, DiagramRelationship, DiagramSchemaGroup, DiagramSyncOrphan, DiagramSyncResultTable, DiagramTableKeys, DiagramTreeTable } from '../../src/webview-messages/diagram-messages';
+import { ColumnNameUtils } from '../../src/utils/column-name-utils';
 import { columnDisplayName } from '../../src/diagram/diagram-column-labels';
 import type { ForeignKeyTarget } from '../../src/diagram/diagram-column-labels';
 import type { SchemaImportReport, SchemaImportSummary, SchemasSchemaListEntry, SaveSqlImportRequest, SqlImportConnectionTarget, SqlImportMappings, SqlImportRunResult, SqlImportStatementInput } from '../../src/webview-messages/schemas-messages';
@@ -35,7 +36,8 @@ import type { SchemaGroupNodeData } from './components/schema-group-node';
 import { cardinalityMarkerId, RelationshipMarkers } from './components/relationship-markers';
 import { SchemaOverviewMap } from './components/schema-overview-map';
 import { SyncSummaryDialog } from './components/sync-summary-dialog';
-import { AddMissingTargetsDialog } from './components/add-missing-targets-dialog';
+import { AddRelatedTablesDialog } from './components/add-related-tables-dialog';
+import type { RelatedKeyRow, RelatedTablesChoice } from './components/add-related-tables-dialog';
 import { ContextMenu } from '../shared/components/context-menu';
 import { columnCopyMenuItems, copyMenuItem } from '../shared/components/column-copy-menu-items';
 import { ContextMenuOpenContext } from '../shared/components/menu-aware-tooltip';
@@ -111,14 +113,14 @@ function buildNodes(model: DiagramModel, tableCountsBySchemaId: Map<string, numb
 			// displayNodes once the current zoom tier is known, since the right handle geometry depends on
 			// whether columns are actually being rendered.
 			handles: tableNodeHandles(table),
-			// dimmed/highlightedColumns/onColumnClick/missingTargets are placeholders, overwritten every
+			// dimmed/highlightedColumns/onColumnClick/addableColumns are placeholders, overwritten every
 			// render by the displayNodes derivation below - kept here only so the base TableNodeData shape
 			// is complete.
 			data: {
 				table: table, color: schema?.color ?? '#888888', expanded: false, dimmed: false,
 				columnLabels: EMPTY_COLUMN_LABELS,
 				highlightedColumns: EMPTY_COLUMN_SET, dimmedColumnNames: EMPTY_COLUMN_SET, onColumnClick: NOOP_COLUMN_CLICK,
-				missingTargetsByColumn: EMPTY_MISSING_TARGETS, onAddMissingTarget: NOOP_ADD_MISSING_TARGET,
+				addableColumns: EMPTY_COLUMN_SET, hasAddableKeys: false, onShowKeys: NOOP_SHOW_KEYS,
 				foreignKeyTargetsByColumn: EMPTY_FOREIGN_KEY_TARGETS, outgoingRelationshipCount: 0
 			}
 		};
@@ -203,8 +205,7 @@ const EMPTY_COLUMN_SET: ReadonlySet<string> = new Set();
 const EMPTY_COLUMN_LABELS: readonly string[] = [];
 const NOOP_COLUMN_CLICK = () => { };
 const NOOP_RESIZE_END = () => { };
-const NOOP_ADD_MISSING_TARGET = () => { };
-const EMPTY_MISSING_TARGETS: ReadonlyMap<string, MissingRelationshipTarget> = new Map();
+const NOOP_SHOW_KEYS = () => { };
 const EMPTY_FOREIGN_KEY_TARGETS: ReadonlyMap<string, ForeignKeyTarget[]> = new Map();
 const EMPTY_RELATIONSHIPS: readonly DiagramRelationship[] = [];
 
@@ -299,13 +300,12 @@ export function App() {
 	let [sqlImportBusy, setSqlImportBusy] = useState(false);
 	// Shown after any import lands, whatever it came from - see ImportSummaryDialog.
 	let [importReport, setImportReport] = useState<SchemaImportReport | null>(null);
-	// Foreign keys on the diagram whose referenced table isn't - pushed by the host (the model only
-	// records the relationships that were actually drawn, so this can't be derived here). Always empty
-	// while disconnected, since bringing a table in needs a connection.
-	let [missingTargets, setMissingTargets] = useState<MissingRelationshipTarget[]>([]);
-	// The marker whose targets the user is picking from, or null when no picker is open - only ever set
-	// for a column pointing at more than one absent table (see handleAddMissingTarget).
-	let [missingTargetChoice, setMissingTargetChoice] = useState<MissingRelationshipTarget | null>(null);
+	// Every foreign key touching each table on the diagram, in both directions - pushed by the host (the
+	// model only records the relationships that were actually drawn, so this can't be derived here).
+	// Always empty while disconnected, since bringing a table in needs a connection.
+	let [tableKeys, setTableKeys] = useState<DiagramTableKeys[]>([]);
+	// The keys behind the "add related tables" button the user clicked, or null when the dialog is closed.
+	let [relatedChoice, setRelatedChoice] = useState<RelatedTablesChoice | null>(null);
 	// Right-click "Remove" on a table or a schema's header - null means the menu is closed. `kind`
 	// disambiguates which host message the single "Remove" item sends (removeTable/removeTables vs
 	// removeSchema), since both node types share this one context menu rather than each declaring its
@@ -396,8 +396,8 @@ export function App() {
 				} else {
 					setSqlImportError(event.data.result.error);
 				}
-			} else if(event.data.command === 'missingTargetsLoaded') {
-				setMissingTargets(event.data.targets);
+			} else if(event.data.command === 'tableKeysLoaded') {
+				setTableKeys(event.data.tables);
 			} else if(event.data.command === 'importRemovalOrphanFound') {
 				setImportRemovalOrphans(event.data.orphans);
 			} else if(event.data.command === 'openSqlImportEditor') {
@@ -684,7 +684,7 @@ export function App() {
 
 	// This table's own outgoing relationships (it's the fromTable end) - what a table's tooltip counts,
 	// and what a column's tooltip names as "foreign key to". Grouped by fromTable so each node gets only
-	// its own, the same reasoning as missingTargetsByTableId below.
+	// its own, the same reasoning as addableKeysByTableId below.
 	let outgoingRelationshipsByTableId = useMemo(() => {
 		let grouped = new Map<string, DiagramRelationship[]>();
 
@@ -697,48 +697,86 @@ export function App() {
 		return grouped;
 	}, [model.relationships]);
 
-	// Grouped per table so each node gets only its own, keyed by column name - a node would otherwise
-	// have to scan the whole diagram's list once per column on every render.
-	let missingTargetsByTableId = useMemo(() => {
-		let grouped = new Map<string, Map<string, MissingRelationshipTarget>>();
+	let keysByTableId = useMemo(() => new Map(tableKeys.map(entry => [entry.tableId, entry.keys])), [tableKeys]);
+	let presentTableIds = useMemo(() => new Set(model.tables.map(table => table.id)), [model.tables]);
 
-		for(let target of missingTargets) {
-			let forTable = grouped.get(target.tableId) ?? new Map<string, MissingRelationshipTarget>();
-			forTable.set(target.columnName, target);
-			grouped.set(target.tableId, forTable);
+	// Which tables and columns get an "add related tables" button: those with a key, in either direction,
+	// whose other table isn't on the diagram. Worked out against the model here rather than by the host,
+	// so a table added since the last push already counts as present. Grouped per table so each node gets
+	// only its own - a node would otherwise scan the whole diagram's keys on every render.
+	let addableKeysByTableId = useMemo(() => {
+		let grouped = new Map<string, ReadonlySet<string>>();
+
+		for(let entry of tableKeys) {
+			let columns = new Set<string>();
+			let any = false;
+
+			for(let key of entry.keys) {
+				if(presentTableIds.has(key.otherTableId)) {
+					continue;
+				}
+
+				any = true;
+				key.columns.forEach(pair => columns.add(pair.column));
+			}
+
+			if(any) {
+				grouped.set(entry.tableId, columns);
+			}
 		}
 
 		return grouped;
-	}, [missingTargets]);
+	}, [tableKeys, presentTableIds]);
 
-	// Same message the picker's "Add to Diagram" posts. Nothing is cleared optimistically: the host's
-	// edit fires a model update, which triggers a fresh missing-targets push, so the marker disappears
-	// only once the tables are genuinely on the diagram (and correctly stays put if an add failed
-	// because the target no longer exists).
-	let addMissingTargetTables = useCallback((targets: readonly MissingTargetTable[]) => {
-		diagramVsCodeApi.postMessage({
-			command: 'addTables',
-			tables: targets.map(target => ({ schema: target.targetSchema, table: target.targetTable }))
-		});
-	}, []);
+	// The dialog's rows for one column's keys, or for all of a table's. Columns are labelled here, the
+	// same way the rows are (resultHeadingLabels): this table's through its own DiagramColumns, the other
+	// table's from the name forms the host sent, since that table needn't be on the diagram.
+	let handleShowKeys = useCallback((tableId: string, columnName?: string) => {
+		let table = tableById.get(tableId);
 
-	// One absent table is added on the click itself - a dialog offering a single checkbox would only ask
-	// the user to confirm the thing they just clicked. Several (two foreign keys leaving the same column)
-	// open the picker instead, since there'd otherwise be no way to say which one, or to take more than
-	// one.
-	let handleAddMissingTarget = useCallback((target: MissingRelationshipTarget) => {
-		if(target.targets.length === 1) {
-			addMissingTargetTables(target.targets);
+		if(!table) {
 			return;
 		}
 
-		setMissingTargetChoice(target);
-	}, [addMissingTargetTables]);
+		let ownLabel = (identity: string) => {
+			let found = table.columns.find(column => column.name === identity);
+			return found ? columnDisplayName(found, columnLabels) : identity;
+		};
+		let otherLabel = (shortName: string | undefined, longName: string | undefined) =>
+			ColumnNameUtils.displayName({ identity: longName ?? shortName ?? '', shortName: shortName, longName: longName }, columnLabels);
 
-	let handleAddChosenMissingTargets = useCallback((targets: MissingTargetTable[]) => {
-		setMissingTargetChoice(null);
-		addMissingTargetTables(targets);
-	}, [addMissingTargetTables]);
+		let keys = (keysByTableId.get(tableId) ?? []).filter(key => columnName == null || key.columns.some(pair => pair.column === columnName));
+		let rows = keys.map<RelatedKeyRow>(key => {
+			let own = key.columns.map(pair => ownLabel(pair.column));
+			let other = key.columns.map(pair => otherLabel(pair.otherShortName, pair.otherLongName));
+
+			return {
+				direction: key.direction,
+				constraintName: key.constraintName,
+				isNew: key.isNew,
+				otherSchema: key.otherSchema,
+				otherTable: key.otherTable,
+				otherTableId: key.otherTableId,
+				// Always the referencing side first, so the arrow reads the same way in both sections.
+				childColumns: key.direction === 'references' ? own : other,
+				parentColumns: key.direction === 'references' ? other : own
+			};
+		});
+
+		let tableName = `${table.schemaId}.${table.name}`;
+		setRelatedChoice({ subject: columnName == null ? tableName : `${tableName} ${ownLabel(columnName)}`, keys: rows });
+	}, [tableById, keysByTableId, columnLabels]);
+
+	// Same message the picker's "Add to Diagram" posts. Nothing is cleared optimistically: the host's
+	// edit fires a model update, and the buttons go once the tables are genuinely on the diagram (and
+	// correctly stay put if an add failed because the table no longer exists).
+	let handleAddRelatedTables = useCallback((tables: { schema: string; table: string }[]) => {
+		setRelatedChoice(null);
+
+		if(tables.length > 0) {
+			diagramVsCodeApi.postMessage({ command: 'addTables', tables: tables });
+		}
+	}, []);
 
 	let handleColumnClick = useCallback((tableId: string, columnName: string) => {
 		let key = columnKey(tableId, columnName);
@@ -844,13 +882,14 @@ export function App() {
 				dimmedColumnNames: dimmedColumnNamesByTableId.get(node.id) ?? EMPTY_COLUMN_SET,
 				highlightedColumns: highlightedColumns,
 				onColumnClick: handleColumnClick,
-				missingTargetsByColumn: missingTargetsByTableId.get(node.id) ?? EMPTY_MISSING_TARGETS,
-				onAddMissingTarget: handleAddMissingTarget,
+				addableColumns: addableKeysByTableId.get(node.id) ?? EMPTY_COLUMN_SET,
+				hasAddableKeys: addableKeysByTableId.has(node.id),
+				onShowKeys: handleShowKeys,
 				foreignKeyTargetsByColumn: foreignKeyTargetsByColumn,
 				outgoingRelationshipCount: outgoingRelationships.length
 			}
 		};
-	}), [nodes, tier, columnLabels, relatedColumnKeys, handleColumnClick, handleResizeSchema, hasFilter, filterMatchByTableId, dimmedColumnNamesByTableId, schemaHasMatchById, missingTargetsByTableId, handleAddMissingTarget, outgoingRelationshipsByTableId, tableById]);
+	}), [nodes, tier, columnLabels, relatedColumnKeys, handleColumnClick, handleResizeSchema, hasFilter, filterMatchByTableId, dimmedColumnNamesByTableId, schemaHasMatchById, addableKeysByTableId, handleShowKeys, outgoingRelationshipsByTableId, tableById]);
 
 	let displayEdges = useMemo(() => {
 		let tableXById = tableAbsoluteXById(nodes);
@@ -1580,10 +1619,11 @@ export function App() {
 
 			<SyncSummaryDialog open={syncSummary !== null} tables={syncSummary ?? []} onClose={() => setSyncSummary(null)} />
 
-			<AddMissingTargetsDialog
-				target={missingTargetChoice}
-				onCancel={() => setMissingTargetChoice(null)}
-				onAdd={handleAddChosenMissingTargets}
+			<AddRelatedTablesDialog
+				choice={relatedChoice}
+				presentTableIds={presentTableIds}
+				onCancel={() => setRelatedChoice(null)}
+				onAdd={handleAddRelatedTables}
 			/>
 
 			<EditSchemaListDialog

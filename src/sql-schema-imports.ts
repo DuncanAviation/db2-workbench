@@ -661,6 +661,121 @@ export class SqlSchemaImports {
 		return byTableKey;
 	}
 
+	// The reverse side of getTableFragments: for each target, every child table whose imported
+	// relationships point at it, one fragment per (import, child) with foreignKeys narrowed to the ones
+	// referencing that target. Keyed by the target's sqlImportTableKey.
+	//
+	// Relationships load per child table, so no amount of lazy loading would ever find a table's
+	// children. Instead a linked import's whole Relationships section is loaded once (seedRelationships),
+	// after which this is a scan of the cache - and every later child-side lookup is free too.
+	async getReferencingFragments(options: SqlSchemaImports.LoadOptions, targets: SqlImportTableRef[]): Promise<Map<string, SqlImportTableFragment[]>> {
+		let byTargetKey = new Map<string, SqlImportTableFragment[]>();
+
+		if(targets.length === 0 || this.registry.size === 0) {
+			return byTargetKey;
+		}
+
+		let host = await this.getHost(options);
+		let entries = host ? Array.from(this.registry.get(host)?.values() ?? []).filter(entry => entry.configIds.has(options.configId) && entry.sections.has('relationships')) : [];
+
+		for(let entry of entries) {
+			if(!await this.seedRelationships(options, <string>host, entry, targets)) {
+				continue;
+			}
+
+			let prefix = sqlImportFragmentKey(<string>host, entry.importId, 'relationships', '', '').slice(0, -1);
+
+			for(let [key, fragment] of this.fragments) {
+				if(!key.startsWith(prefix) || fragment.foreignKeys.length === 0) {
+					continue;
+				}
+
+				let childKey = key.substring(prefix.length);
+				let separator = childKey.indexOf('.');
+
+				for(let target of targets) {
+					let foreignKeys = fragment.foreignKeys.filter(foreignKey =>
+						StringUtils.equalsIgnoreCase(foreignKey.referencedSchema, target.schema) && StringUtils.equalsIgnoreCase(foreignKey.referencedTable, target.table));
+
+					if(foreignKeys.length === 0) {
+						continue;
+					}
+
+					let targetKey = sqlImportTableKey(target.schema, target.table);
+					byTargetKey.set(targetKey, [...(byTargetKey.get(targetKey) ?? []), {
+						importId: entry.importId,
+						importName: entry.name,
+						importedAt: entry.importedAt,
+						schema: childKey.substring(0, separator),
+						table: childKey.substring(separator + 1),
+						columns: [],
+						primaryKeyColumns: [],
+						foreignKeys: foreignKeys
+					}]);
+				}
+			}
+		}
+
+		return byTargetKey;
+	}
+
+	// Loads an import's whole Relationships section, unfiltered, and seeds it - the same conversion an
+	// import made through the dialog gets. Returns whether the section is now complete. A failed,
+	// rejected or truncated run leaves it unseeded: a truncated one would cache the children it cut off
+	// as having no relationships, which is worse than the reverse lookup simply missing this import.
+	private async seedRelationships(options: SqlSchemaImports.LoadOptions, host: string, entry: SqlSchemaImports.RegisteredImport, targets: SqlImportTableRef[]): Promise<boolean> {
+		if(entry.seeded.has('relationships')) {
+			return true;
+		}
+
+		let config = <SqlSchemaImports.RegisteredSection>entry.sections.get('relationships');
+		let label = getSqlImportSection('relationships').label;
+		let violation = SqlImportValidator.check(config.sql);
+
+		if(violation) {
+			this.warnOnce(entry, 'relationships', `The ${label} statement for the "${entry.name}" import was rejected: ${violation.reason}`);
+			return false;
+		}
+
+		let rowLimit = this.extension.configurations.sqlImportRowLimit;
+		let error: unknown;
+
+		let result = await this.extension.connections.internalQuery({
+			key: options.key,
+			configId: options.configId,
+			sql: buildSqlImportStatement(config.sql, {rowLimit: rowLimit + 1}),
+			progressMessage: `Loading imported ${label.toLowerCase()}...`,
+			onError: caught => error = caught
+		});
+
+		if(error || !result) {
+			this.warnOnce(entry, 'relationships', `The ${label} statement for the "${entry.name}" import failed. See the History tab for details.`);
+			return false;
+		}
+
+		let rows = <SqlImportRow[]>Array.from(result);
+
+		if(rows.length > rowLimit) {
+			this.warnOnce(entry, 'relationships', `The ${label} statement for the "${entry.name}" import returned more than ${rowLimit} rows, so tables referenced by its relationships can't be listed.`);
+			return false;
+		}
+
+		// The targets are added to what the converter may attach a row to, so a relationship into an
+		// imported-only table the import's own Tables statement didn't return still lands.
+		let targetKeys = targets.map(target => sqlImportTableKey(target.schema, target.table));
+		let knownTables = await this.getKnownTables(options, new Set([...entry.tableKeys, ...targetKeys]));
+
+		this.seedFragments({
+			host: host,
+			entry: entry,
+			rows: new Map([['relationships', rows]]),
+			mappings: {relationships: config.mapping},
+			knownTables: knownTables
+		});
+
+		return true;
+	}
+
 	// A run's rows are only needed between the dialog's two steps, so they're dropped as soon as the
 	// import lands or the dialog is closed - nothing here is a cache.
 	discardRun(runId: string): void {

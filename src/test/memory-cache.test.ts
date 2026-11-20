@@ -24,7 +24,10 @@ import { TestSupport } from './test-support.js';
 suite('MemoryCache against the fake driver', () => {
 	const COLUMNS = /syscolumns2/;
 	const KEYS = /syscst a join qsys2\.syskeycst/;
-	const FOREIGN_KEYS = /sysrefcst/;
+	// The forward and reverse foreign key statements share one join and differ only in which side the
+	// predicate names, so each pattern matches on that side alone.
+	const FOREIGN_KEYS = /sysrefcst.*where \(+a\.system_table_/;
+	const REFERENCING_FOREIGN_KEYS = /sysrefcst.*where \(+d\.system_table_/;
 	const ADVICE = /sysixadv/;
 
 	suiteSetup(async () => {
@@ -109,6 +112,53 @@ suite('MemoryCache against the fake driver', () => {
 
 			let referenced = await extension.memoryCache.getForeignKeys({ key: key, configId: TestSupport.CONFIG_ID, tables: { schema: 'SALES', table: 'CUSTOMER' } });
 			assert.deepStrictEqual(referenced, [], 'CUSTOMER declares no foreign key of its own - it is only referenced by one');
+		} finally {
+			await TestSupport.closeSessions(key);
+		}
+	});
+
+	// The mirror of the test above: a referencing foreign key belongs to - is cached under - the table it
+	// points at. ORDERS is referenced by SHIPMENT's two-column key onto a unique (not primary) key, which
+	// is the case where a reverse join on the wrong constraint type or the wrong side would come back
+	// empty or crossed over.
+	test('a referencing foreign key is attributed to the table it references, and each slot is cached', async () => {
+		let key = 'test://cache-referencing-foreign-keys';
+		let recorder = TestSupport.recordStatements();
+
+		try {
+			await openSession(key, recorder);
+
+			let referencing = await extension.memoryCache.getReferencingForeignKeys({
+				key: key,
+				configId: TestSupport.CONFIG_ID,
+				tables: [{ schema: 'SALES', table: 'CUSTOMER' }, { schema: 'SALES', table: 'ORDERS' }, { schema: 'SALES', table: 'SHIPMENT' }]
+			});
+
+			assert.strictEqual(recorder.matching(REFERENCING_FOREIGN_KEYS).length, 1, 'three tables should take one statement');
+			assert.strictEqual(recorder.matching(FOREIGN_KEYS).length, 0, 'the forward pattern must not match the reverse statement');
+
+			assert.deepStrictEqual(
+				referencing.map(foreignKey => [foreignKey.referencedTable, foreignKey.tableName, foreignKey.constraintName, foreignKey.systemColumnName, foreignKey.referencedSystemColumnName]),
+				[
+					['CUSTOMER', 'ORDERS', 'ORDERS_CUSTOMER_FK', 'CUSTNO', 'CUSTNO'],
+					['ORDERS', 'SHIPMENT', 'SHIPMENT_ORDERS_FK', 'SHPCUS', 'CUSTNO'],
+					['ORDERS', 'SHIPMENT', 'SHIPMENT_ORDERS_FK', 'SHPDT', 'ORDDT']
+				]
+			);
+
+			// Each table got its own slot, SHIPMENT's an empty one, so asking again - for any subset - is
+			// answered from cache.
+			recorder.clear();
+			let again = await extension.memoryCache.getReferencingForeignKeys({ key: key, configId: TestSupport.CONFIG_ID, tables: [{ schema: 'SALES', table: 'ORDERS' }, { schema: 'SALES', table: 'SHIPMENT' }] });
+
+			assert.strictEqual(recorder.matching(REFERENCING_FOREIGN_KEYS).length, 0);
+			assert.deepStrictEqual(again.map(foreignKey => foreignKey.tableName), ['SHIPMENT', 'SHIPMENT']);
+
+			// And the reverse slots are separate from the forward ones: ORDERS' own outgoing key still
+			// has to be fetched.
+			let outgoing = await extension.memoryCache.getForeignKeys({ key: key, configId: TestSupport.CONFIG_ID, tables: { schema: 'SALES', table: 'ORDERS' } });
+			assert.strictEqual(recorder.matching(FOREIGN_KEYS).length, 1);
+			assert.deepStrictEqual(outgoing.map(foreignKey => foreignKey.constraintName), ['ORDERS_CUSTOMER_FK']);
 		} finally {
 			await TestSupport.closeSessions(key);
 		}

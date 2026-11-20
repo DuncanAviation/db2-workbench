@@ -46,6 +46,13 @@ export interface ResolvedForeignKey {
 	toSchema: string;
 	toTable: string;
 	toColumn: string;
+	/** Only read by diagram-table-keys.ts, to group a composite key's rows and to name the key and the
+	 * referenced column in the add-tables dialog. Drawing a relationship needs none of them. */
+	constraintName?: string;
+	toShortName?: string;
+	toLongName?: string;
+	/** The key came only from an import - see ResolvedForeignKey.isNew in table-resolver.ts. */
+	isNew?: boolean;
 }
 
 // One table, fully resolved: its columns in display order plus every foreign key it declares. The

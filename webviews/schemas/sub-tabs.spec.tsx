@@ -34,6 +34,14 @@ function foreignKey(overrides: Partial<ResolvedForeignKey> = {}): ResolvedForeig
 	};
 }
 
+// A key in another table (ORDERS) pointing at the one the tab is open on.
+function referencingForeignKey(overrides: Partial<ResolvedForeignKey> = {}): ResolvedForeignKey {
+	return foreignKey({
+		schema: SCHEMA, tableName: 'ORDERS', constraintName: 'ORDERS_CUSTOMER_FK', columnName: 'CUSTOMER_NUMBER', systemColumnName: 'CUSNO',
+		referencedSchema: SCHEMA, referencedTable: TABLE, referencedColumnName: 'CUSTOMER_NUMBER', referencedSystemColumnName: 'CUSNO', ...overrides
+	});
+}
+
 function index(overrides: Partial<ResolvedIndex> = {}): ResolvedIndex {
 	return { indexSchema: SCHEMA, indexName: 'CUSTOMER_BY_NAME', indexType: 'BINARY RADIX', uniqueness: 'NOT UNIQUE', keyColumns: 'NAME', indexOwner: 'DBADMIN', isNew: false, ...overrides };
 }
@@ -109,7 +117,7 @@ async function waitForDialogToClose() {
 // like, and what the reply renders.
 interface CatalogTab {
 	name: string;
-	loadCommand: 'loadTableKeys' | 'loadForeignKeys' | 'loadIndexes' | 'loadIndexAdvice' | 'loadTriggers';
+	loadCommand: 'loadTableKeys' | 'loadForeignKeys' | 'loadReferencingForeignKeys' | 'loadIndexes' | 'loadIndexAdvice' | 'loadTriggers';
 	loadingText: string;
 	errorLabel: string;
 	loaded: (schema: string, table: string) => SchemasInboundMessage;
@@ -134,6 +142,12 @@ const CATALOG_TABS: CatalogTab[] = [
 		loaded: (schema, table) => ({ command: 'foreignKeysLoaded', schema, table, foreignKeys: [foreignKey()] }),
 		empty: (schema, table) => ({ command: 'foreignKeysLoaded', schema, table, foreignKeys: [] }),
 		error: (schema, table, message) => ({ command: 'foreignKeysError', schema, table, error: { message } })
+	},
+	{
+		name: 'Referenced By', loadCommand: 'loadReferencingForeignKeys', loadingText: 'Loading referencing foreign keys...', errorLabel: 'Failed to load referencing foreign keys', rowText: 'ORDERS_CUSTOMER_FK',
+		loaded: (schema, table) => ({ command: 'referencingForeignKeysLoaded', schema, table, foreignKeys: [referencingForeignKey()] }),
+		empty: (schema, table) => ({ command: 'referencingForeignKeysLoaded', schema, table, foreignKeys: [] }),
+		error: (schema, table, message) => ({ command: 'referencingForeignKeysError', schema, table, error: { message } })
 	},
 	{
 		name: 'Indexes', loadCommand: 'loadIndexes', loadingText: 'Loading indexes...', errorLabel: 'Failed to load indexes', rowText: 'CUSTOMER_BY_NAME',
@@ -281,14 +295,14 @@ describe('schema browser catalog sub-tabs', () => {
 		it('offers Advised Indexes, Triggers and Data for a table that exists in the database', () => {
 			renderSchemas();
 
-			expect(subTabNames()).toEqual(['Info', 'Columns', 'Table Keys', 'Foreign Keys', 'Indexes', 'Advised Indexes', 'Triggers', 'Data']);
+			expect(subTabNames()).toEqual(['Info', 'Columns', 'Table Keys', 'Foreign Keys', 'Referenced By', 'Indexes', 'Advised Indexes', 'Triggers', 'Data']);
 		});
 
 		it('leaves out Advised Indexes, Triggers and Data for a table that only exists in an import', () => {
 			renderSchemas({ imported: [importedTable(SCHEMA, TABLE)] });
 
 			// Neither can be answered for a table the database doesn't have.
-			expect(subTabNames()).toEqual(['Info', 'Columns', 'Table Keys', 'Foreign Keys', 'Indexes']);
+			expect(subTabNames()).toEqual(['Info', 'Columns', 'Table Keys', 'Foreign Keys', 'Referenced By', 'Indexes']);
 		});
 
 		it('flags a key that came from an import as New on an enhanced table, and has no flags column otherwise', async () => {
@@ -305,6 +319,44 @@ describe('schema browser catalog sub-tabs', () => {
 			let realRow = screen.getAllByRole('row').find(row => row.textContent?.includes('CUSTOMER_PK')) as HTMLElement;
 			expect(within(newRow).getByText('New')).toBeTruthy();
 			expect(within(realRow).queryByText('New')).toBeNull();
+		});
+
+		// A referencing key comes from the child's imports, not this table's, so Referenced By flags it even
+		// on a table with no import of its own.
+		it('flags a referencing key that came from another table\'s import as New, on a table with nothing imported', async () => {
+			let user = userEvent.setup();
+			renderSchemas();
+			await openTab(user, 'Referenced By');
+
+			postFromHost<SchemasInboundMessage>({
+				command: 'referencingForeignKeysLoaded', schema: SCHEMA, table: TABLE,
+				foreignKeys: [referencingForeignKey(), referencingForeignKey({ tableName: 'WORKORDER', constraintName: 'imported-fk-0', isNew: true })]
+			});
+
+			let newRow = screen.getAllByRole('row').find(row => row.textContent?.includes('WORKORDER')) as HTMLElement;
+			let realRow = screen.getAllByRole('row').find(row => row.textContent?.includes('ORDERS_CUSTOMER_FK')) as HTMLElement;
+			expect(within(newRow).getByText('New')).toBeTruthy();
+			expect(within(realRow).queryByText('New')).toBeNull();
+		});
+
+		// The host opens the tab (OpenTableMessage), so a table in a schema the panel doesn't list still opens.
+		it('the other table\'s name on Foreign Keys and Referenced By asks the host to open that table', async () => {
+			let user = userEvent.setup();
+			renderSchemas();
+
+			await openTab(user, 'Foreign Keys');
+			// An import that named only the referenced table means one in this table's own schema.
+			postFromHost<SchemasInboundMessage>({ command: 'foreignKeysLoaded', schema: SCHEMA, table: TABLE, foreignKeys: [foreignKey({ schema: SCHEMA, referencedSchema: '' })] });
+			await user.click(screen.getByRole('button', { name: 'REGION' }));
+
+			await openTab(user, 'Referenced By');
+			postFromHost<SchemasInboundMessage>({ command: 'referencingForeignKeysLoaded', schema: SCHEMA, table: TABLE, foreignKeys: [referencingForeignKey({ schema: 'OTHER' })] });
+			await user.click(screen.getByRole('button', { name: 'ORDERS' }));
+
+			expect(posted().filter(message => message.command === 'openTable')).toEqual([
+				{ command: 'openTable', schema: SCHEMA, table: 'REGION' },
+				{ command: 'openTable', schema: 'OTHER', table: 'ORDERS' }
+			]);
 		});
 
 		it('has no flags column for a table with nothing imported', async () => {
