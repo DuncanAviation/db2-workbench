@@ -59,9 +59,16 @@ const PROCEDURES: Record<string, SchemaTreeEntry[]> = {
 	]
 };
 
+const LOGICAL_FILES: Record<string, SchemaTreeEntry[]> = {
+	SALES: [
+		{ schema: 'SALES', table: 'ORDERSL1', description: 'Orders by customer' }
+	]
+};
+
 interface SingleHarnessProps {
 	tablesBySchema?: Record<string, SchemaTreeEntry[]>;
 	viewsBySchema?: Record<string, SchemaTreeEntry[]>;
+	logicalFilesBySchema?: Record<string, SchemaTreeEntry[]>;
 	functionsBySchema?: Record<string, SchemaTreeEntry[]>;
 	proceduresBySchema?: Record<string, SchemaTreeEntry[]>;
 	initialFilter?: string;
@@ -320,6 +327,37 @@ describe('SchemaTree', () => {
 
 			expect(onSelectView).toHaveBeenCalledWith('SALES', 'CUSTORD');
 			expect(onSelectTable).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('logical files', () => {
+		it('adds a Logical Files node after Views, expanded and collapsed apart from it', async () => {
+			let user = userEvent.setup();
+			renderWebview(<SingleHarness viewsBySchema={VIEWS} logicalFilesBySchema={LOGICAL_FILES} functionsBySchema={FUNCTIONS} />);
+
+			await user.click(row('SALES'));
+			expect(rowTexts()).toEqual(['EMPTYLIB', 'PARTS', 'SALES', 'Tables (2)', 'Views (2)', 'Logical Files (1)', 'Functions (3)']);
+
+			await user.click(row('Logical Files (1)'));
+			expect(rowTexts()).toEqual(['EMPTYLIB', 'PARTS', 'SALES', 'Tables (2)', 'Views (2)', 'Logical Files (1)', 'ORDERSL1 (Orders by customer)', 'Functions (3)']);
+		});
+
+		it('filters logical files like views, keeping a schema whose only match is a logical file', () => {
+			renderWebview(<SingleHarness viewsBySchema={VIEWS} logicalFilesBySchema={LOGICAL_FILES} initialFilter="by customer" />);
+
+			expect(rowTexts()).toEqual(['SALES', 'Logical Files (1)', 'ORDERSL1 (Orders by customer)']);
+		});
+
+		it('reports a clicked logical file through onSelectView, with a view key', async () => {
+			let user = userEvent.setup();
+			let onSelectView = vi.fn();
+			renderWebview(<SingleHarness logicalFilesBySchema={LOGICAL_FILES} initialFilter="ordersl1" selected={{ schema: 'SALES', table: 'ORDERSL1', kind: 'view' }} onSelectView={onSelectView} />);
+
+			expect(selectedTexts()).toEqual(['ORDERSL1 (Orders by customer)']);
+
+			await user.click(row('ORDERSL1 (Orders by customer)'));
+
+			expect(onSelectView).toHaveBeenCalledWith('SALES', 'ORDERSL1');
 		});
 	});
 

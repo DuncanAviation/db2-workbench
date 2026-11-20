@@ -32,6 +32,10 @@ import { WebviewHtmlUtils } from '../utils/webview-html-utils.js';
 import { DiagramExportFormat, DiagramModel } from '../webview-messages/diagram-messages.js';
 import {
 	ColumnsErrorMessage,
+	LogicalFileErrorMessage,
+	LogicalFileLoadedMessage,
+	LogicalFileSourceErrorMessage,
+	LogicalFileSourceLoadedMessage,
 	RoutineDetailErrorMessage,
 	RoutineDetailLoadedMessage,
 	RoutineDdlErrorMessage,
@@ -163,6 +167,10 @@ export class SchemasProvider {
 		panel.webview.onDidReceiveMessage(async (message: SchemasOutboundMessage) => {
 			if(message.command === 'loadViewDefinition') {
 				await this.postViewDefinition(panel, key, config.id, message.schema, message.table, message.source ?? 'view', message.forceRefresh);
+			} else if(message.command === 'loadLogicalFile') {
+				await this.postLogicalFile(panel, key, config.id, message.schema, message.table, message.forceRefresh);
+			} else if(message.command === 'loadLogicalFileSource') {
+				await this.postLogicalFileSource(panel, key, config.id, message.schema, message.table);
 			} else if(message.command === 'loadRoutineParams') {
 				await this.postRoutineParams(panel, key, config.id, message.schema, message.table, message.forceRefresh);
 			} else if(message.command === 'loadRoutineDetail') {
@@ -655,6 +663,47 @@ export class SchemasProvider {
 			}
 
 			throw error;
+		}
+	}
+
+	// A logical file's SYSFILES row and key fields, for its Info and Columns tabs - cached per file
+	// (MemoryCache.getLogicalFile). A failure is posted, not thrown, so the Info tab can still show the
+	// fields the tree carried.
+	private async postLogicalFile(panel: vscode.WebviewPanel, key: string, configId: string, schema: string, file: string, forceRefresh?: boolean): Promise<void> {
+		let reply = {schema: schema, table: file};
+
+		try {
+			let detail = await this.extension.memoryCache.getLogicalFile({key: key, configId: configId, schema: schema, file: file, forceRefresh: forceRefresh});
+			panel.webview.postMessage(<LogicalFileLoadedMessage>{command: 'logicalFileLoaded', ...reply, file: detail});
+		} catch(error) {
+			panel.webview.postMessage(<LogicalFileErrorMessage>{command: 'logicalFileError', ...reply, error: SchemasProvider.serializeLookupError(error)});
+		}
+	}
+
+	// A logical file's Source tab: the DDS member its object description records, read the way a program's
+	// source member is - a same-named copy elsewhere when the recorded member is gone, its text reused while
+	// unchanged.
+	private async postLogicalFileSource(panel: vscode.WebviewPanel, key: string, configId: string, schema: string, file: string): Promise<void> {
+		let reply = {schema: schema, table: file};
+		let unavailable = (reason: string) => panel.webview.postMessage(<LogicalFileSourceLoadedMessage>{command: 'logicalFileSourceLoaded', ...reply, sources: [], unavailable: reason});
+
+		try {
+			let options = {key: key, configId: configId};
+			let recorded = await this.extension.catalogQueries.getFileSource({...options, schema: schema, file: file});
+
+			if(!recorded.found) {
+				return void unavailable(`${schema}/${file} was not found - it may have been deleted since the schema list was loaded.`);
+			}
+
+			if(recorded.source == null) {
+				return void unavailable(`No source member is recorded for ${schema}/${file}.`);
+			}
+
+			let location: ProgramSourceLocation = {library: recorded.source.library, file: recorded.source.file, member: recorded.source.member};
+			let sources = await this.readProgramSources(options, [location], schema.toUpperCase());
+			panel.webview.postMessage(<LogicalFileSourceLoadedMessage>{command: 'logicalFileSourceLoaded', ...reply, sources: sources});
+		} catch(error) {
+			panel.webview.postMessage(<LogicalFileSourceErrorMessage>{command: 'logicalFileSourceError', ...reply, error: SchemasProvider.serializeLookupError(error)});
 		}
 	}
 

@@ -2,10 +2,12 @@ import { Extension } from '../../extension.js';
 import { SystemRoutine } from '../../models/system-routine.js';
 import { SystemSchema } from '../../models/system-schema.js';
 import { SystemTable } from '../../models/system-table.js';
+import { SystemLogicalFile } from '../../models/system-logical-file.js';
 import { SystemView } from '../../models/system-view.js';
 import { StringUtils } from '../../utils/string-utils.js';
 import { DbConnections } from '../db-connections.js';
 import { runCatalogLookup } from './catalog-lookup.js';
+import { isYes, parseBasedOnFiles, toSourceMember } from './logical-file-detail.js';
 import { chunkSchemaNames } from './table-predicates.js';
 
 // "What objects of kind X exist in this schema" - the schema tree's and autocomplete's object
@@ -152,10 +154,11 @@ export class CatalogQueries {
 			`left join qsys2.systables t on t.sys_dname = v.sys_vdname and t.sys_tname = v.sys_vname ` +
 			`where v.sys_vdname in (${markers}) `);
 
-		return results.map(row => {
+		let views = results.map(row => {
 			return <SystemView>{
 				schema: StringUtils.trim(<string>row['SYS_VDNAME'], {removeDuplicateWhiteSpace: true}),
 				name: StringUtils.trim(<string>row['SYS_VNAME'], {removeDuplicateWhiteSpace: true}),
+				viewType: SystemView.VIEW_TYPE,
 				sqlSchema: StringUtils.trim(<string>row['DBNAME'], {removeDuplicateWhiteSpace: true}),
 				sqlName: StringUtils.trim(<string>row['NAME'], {removeDuplicateWhiteSpace: true}),
 				description: StringUtils.trim(<string>row['LABEL'], {removeDuplicateWhiteSpace: true}),
@@ -169,6 +172,35 @@ export class CatalogQueries {
 				updatable: StringUtils.trim(<string>row['UPDATES'], {removeDuplicateWhiteSpace: true}),
 				deletable: StringUtils.trim(<string>row['DELETES'], {removeDuplicateWhiteSpace: true}),
 				decFltRnd: StringUtils.trim(<string>row['DECFLTRND'], {removeDuplicateWhiteSpace: true})
+			};
+		});
+
+		return [...views, ...await this.listLogicalFiles(options)];
+	}
+
+	// Logical files (SYSTABLES type 'L') are listed with the views - see SystemView. SYSVIEWS has no row for
+	// one, so it comes from SYSTABLES alone. Each schema's views and logical files share one cache slot
+	// (MemoryCache.getViewsForSchemas), so they are always fetched together.
+	private async listLogicalFiles(options: CatalogQueries.ListViewsOptions): Promise<SystemView[]> {
+		let results = await this.queryBySchemas(options, markers =>
+			`select sys_dname, sys_tname, dbname, name, creator, label, remarks, iaspnumber, insertable, selectomit ` +
+			`from qsys2.systables ` +
+			`where sys_dname in (${markers}) ` +
+			`and type = 'L' `);
+
+		return results.map(row => {
+			return <SystemView>{
+				schema: StringUtils.trim(<string>row['SYS_DNAME'], {removeDuplicateWhiteSpace: true}),
+				name: StringUtils.trim(<string>row['SYS_TNAME'], {removeDuplicateWhiteSpace: true}),
+				viewType: SystemView.LOGICAL_FILE_TYPE,
+				sqlSchema: StringUtils.trim(<string>row['DBNAME'], {removeDuplicateWhiteSpace: true}),
+				sqlName: StringUtils.trim(<string>row['NAME'], {removeDuplicateWhiteSpace: true}),
+				description: StringUtils.trim(<string>row['LABEL'], {removeDuplicateWhiteSpace: true}),
+				remarks: StringUtils.trim(<string>row['REMARKS'], {removeDuplicateWhiteSpace: true}),
+				owner: StringUtils.trim(<string>row['CREATOR'], {removeDuplicateWhiteSpace: true}),
+				iaspNumber: <number>row['IASPNUMBER'],
+				insertable: StringUtils.trim(<string>row['INSERTABLE'], {removeDuplicateWhiteSpace: true}),
+				selectOmit: StringUtils.trim(<string>row['SELECTOMIT'], {removeDuplicateWhiteSpace: true})
 			};
 		});
 	}
@@ -208,6 +240,91 @@ export class CatalogQueries {
 		return text?.trim();
 	}
 
+	// One logical file's SYSFILES row - read on demand by its Info and Source tabs, as a view's definition is.
+	// Undefined when there is no such file. SYSFILES' system column names are used: they are what every
+	// release that has the view answers to.
+	async getLogicalFile(options: CatalogQueries.GetLogicalFileOptions): Promise<SystemLogicalFile | undefined> {
+		let results = await runCatalogLookup(this.extension, {
+			key: options.key,
+			configId: options.configId,
+			sql: `select lib_name, file_name, text, owner, alteredts, based_on, ap_type, key_flds, maint, selectomit, ` +
+				`jfile, dynslt, fmt_name ` +
+				`from qsys2.sysfiles where lib_name = ? and file_name = ?`,
+			parameters: [options.schema.toUpperCase(), options.file.toUpperCase()]
+		});
+
+		let row = results[0];
+
+		if(row == null) {
+			return undefined;
+		}
+
+		let trim = (value: unknown) => typeof value === 'string' ? StringUtils.trim(value, {removeDuplicateWhiteSpace: true, toUndefined: true}) : undefined;
+		let basedOn = parseBasedOnFiles(row['BASED_ON']);
+		let keyFieldCount = row['KEY_FLDS'] == null ? undefined : Number(row['KEY_FLDS']);
+
+		return {
+			schema: trim(row['LIB_NAME']) ?? options.schema.toUpperCase(),
+			name: trim(row['FILE_NAME']) ?? options.file.toUpperCase(),
+			text: trim(row['TEXT']),
+			owner: trim(row['OWNER']),
+			alteredTimestamp: row['ALTEREDTS'] == null ? undefined : String(row['ALTEREDTS']),
+			basedOn: basedOn,
+			accessPathType: trim(row['AP_TYPE']),
+			keyFieldCount: keyFieldCount,
+			keyFields: keyFieldCount ? await this.getLogicalFileKeyFields(options, basedOn[0]) : undefined,
+			maintenance: trim(row['MAINT']),
+			selectOmit: isYes(row['SELECTOMIT']),
+			joinLogical: isYes(row['JFILE']),
+			dynamicSelection: isYes(row['DYNSLT']),
+			formatName: trim(row['FMT_NAME'])
+		};
+	}
+
+	// The source member a file was created from. Read from OBJECT_STATISTICS rather than SYSFILES: live,
+	// SYSFILES' SRCLIB/SRCFILE/SRCMBR were blank for a DDS logical file whose object description recorded
+	// its member. `found` is false when the file doesn't exist; `source` is undefined when no member is
+	// recorded.
+	async getFileSource(options: CatalogQueries.GetLogicalFileOptions): Promise<{found: boolean; source?: SystemLogicalFile.SourceMember}> {
+		let results = await runCatalogLookup(this.extension, {
+			key: options.key,
+			configId: options.configId,
+			sql: `select source_library, source_file, source_member from table(qsys2.object_statistics(?, '*FILE', ?)) x`,
+			parameters: [options.schema.toUpperCase(), options.file.toUpperCase()]
+		});
+
+		let row = results[0];
+		return row == null ? {found: false} : {found: true, source: toSourceMember(row['SOURCE_LIBRARY'], row['SOURCE_FILE'], row['SOURCE_MEMBER'])};
+	}
+
+	// A keyed logical file's key fields. SYSFILES only counts them; SYSPARTITIONINDEXSTAT lists a keyed logical
+	// file as an index (INDEX_TYPE 'LOGICAL') of the physical file it is built over. That view only narrows
+	// quickly by its table columns - filtered by the index name alone it ran for minutes live - so it's asked
+	// for the based-on file's indexes and the row for this file is picked out. A join file's key is looked
+	// for over its first (primary) file. Optional detail: a failed lookup leaves it out rather than failing
+	// the Info tab.
+	private async getLogicalFileKeyFields(options: CatalogQueries.GetLogicalFileOptions, basedOn: SystemLogicalFile.BasedOnFile | undefined): Promise<string | undefined> {
+		if(basedOn == null) {
+			return undefined;
+		}
+
+		try {
+			let results = await runCatalogLookup(this.extension, {
+				key: options.key,
+				configId: options.configId,
+				sql: `select index_schema, index_name, column_names from qsys2.syspartitionindexstat ` +
+					`where table_schema = ? and table_name = ? and index_schema = ? and index_name = ?`,
+				parameters: [basedOn.library, basedOn.file, options.schema.toUpperCase(), options.file.toUpperCase()]
+			});
+
+			let row = results.find(candidate => StringUtils.equalsIgnoreCase(StringUtils.trim(<string>candidate['INDEX_SCHEMA']), options.schema)
+				&& StringUtils.equalsIgnoreCase(StringUtils.trim(<string>candidate['INDEX_NAME']), options.file));
+			return typeof row?.['COLUMN_NAMES'] === 'string' ? StringUtils.trim(row['COLUMN_NAMES'], {toUndefined: true}) : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
 	// One materialized query table's select statement (SYSTABLES.MQTDEF) - getViewDefinition's counterpart,
 	// read on demand for the same reason.
 	async getMqtDefinition(options: CatalogQueries.GetMqtDefinitionOptions): Promise<string | undefined> {
@@ -242,6 +359,11 @@ export namespace CatalogQueries {
 	export interface GetViewDefinitionOptions extends DbConnections.CommonListOptions {
 		schema: string;
 		view: string;
+	}
+
+	export interface GetLogicalFileOptions extends DbConnections.CommonListOptions {
+		schema: string;
+		file: string;
 	}
 
 	export interface GetMqtDefinitionOptions extends DbConnections.CommonListOptions {

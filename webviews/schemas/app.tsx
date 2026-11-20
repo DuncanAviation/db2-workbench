@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack, Typography } from '@mui/material';
 import { StringUtils } from '../../src/utils/string-utils.js';
 import { SystemTable } from '../../src/models/system-table.js';
+import { SystemView } from '../../src/models/system-view.js';
 import type { SchemaBrowserPanel, SchemaImportReport, SchemaImportSummary, SchemasSchemaListEntry, SchemasSystemRoutine, SchemasSystemView, SchemasTreeInboundMessage, SaveSqlImportRequest, SqlImportConnectionTarget, SqlImportMappings, SqlImportRunResult, SqlImportStatementInput, TreeTableEntry } from '../../src/webview-messages/schemas-messages';
 import type { DbErrorUtils } from '../../src/utils/db-error-utils';
 import type { SchemaImportErrorUtils } from '../../src/utils/schema-import-error-utils';
@@ -193,14 +194,27 @@ export function App() {
 		return { treeTablesBySchema: tables, treeMqtsBySchema: mqts };
 	}, [tablesBySchema]);
 
-	const treeViewsBySchema = useMemo(() => {
-		let mapped: Record<string, SchemaTreeEntry[]> = {};
+	// Logical files come in with the views (see SystemView) and open the same ViewDetail - they're only split
+	// out here, so the tree can list them under a node of their own, as MQTs are split from tables above.
+	const { treeViewsBySchema, treeLogicalFilesBySchema } = useMemo(() => {
+		let views: Record<string, SchemaTreeEntry[]> = {};
+		let logicalFiles: Record<string, SchemaTreeEntry[]> = {};
 
-		for(let [schema, views] of Object.entries(viewsBySchema)) {
-			mapped[schema] = views.map(view => ({ schema: view.schema, table: view.name, description: view.description }));
+		for(let [schema, entries] of Object.entries(viewsBySchema)) {
+			views[schema] = [];
+
+			for(let view of entries) {
+				let treeEntry = { schema: view.schema, table: view.name, description: view.description };
+
+				if(SystemView.isLogicalFile(view)) {
+					(logicalFiles[schema] ??= []).push(treeEntry);
+				} else {
+					views[schema].push(treeEntry);
+				}
+			}
 		}
 
-		return mapped;
+		return { treeViewsBySchema: views, treeLogicalFilesBySchema: logicalFiles };
 	}, [viewsBySchema]);
 
 	const treeFunctionsBySchema = useMemo(() => toRoutineTreeEntries(functionsBySchema), [functionsBySchema]);
@@ -828,6 +842,7 @@ export function App() {
 					tablesBySchema={treeTablesBySchema}
 					mqtsBySchema={treeMqtsBySchema}
 					viewsBySchema={treeViewsBySchema}
+					logicalFilesBySchema={treeLogicalFilesBySchema}
 					functionsBySchema={treeFunctionsBySchema}
 					proceduresBySchema={treeProceduresBySchema}
 					filterText={filterText}

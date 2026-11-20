@@ -77,6 +77,22 @@ export interface FakeTable {
 export interface FakeView extends FakeTable {
 	/** SYSVIEWS.TEXT - the CREATE VIEW's select statement. */
 	definition: string;
+	/** Declares a logical file rather than a view: it has a SYSTABLES row of type 'L' and no SYSVIEWS
+	 * row, and answers every other lookup (columns, a SELECT of its rows) the way a view does. */
+	logicalFile?: FakeLogicalFile;
+}
+
+/** What SYSTABLES and SYSFILES say about a logical file beyond what it shares with a view. */
+export interface FakeLogicalFile {
+	/** SYSTABLES.SELECTOMIT / SYSFILES.SELECTOMIT - whether the file has select/omit criteria. */
+	selectOmit: boolean;
+	/** The physical files in the same schema it is built over - SYSFILES.BASED_ON. */
+	basedOn: string[];
+	/** SYSFILES.AP_TYPE, e.g. 'KEYED UNIQUE' or 'ARRIVAL'. */
+	accessPathType: string;
+	keyFieldCount: number;
+	/** The DDS member in this schema it was created from - OBJECT_STATISTICS' SOURCE_LIBRARY/FILE/MEMBER. */
+	source?: { file: string; member: string };
 }
 
 /**
@@ -333,10 +349,21 @@ function defineTable(input: Partial<FakeTable>): FakeTable {
 	};
 }
 
+function defineLogicalFile(input: Partial<FakeLogicalFile>): FakeLogicalFile {
+	return {
+		selectOmit: input.selectOmit === true,
+		basedOn: ArrayUtils.toArray(input.basedOn).map(upper),
+		accessPathType: StringUtils.default(input.accessPathType, () => 'ARRIVAL'),
+		keyFieldCount: input.keyFieldCount ?? 0,
+		...(input.source != null ? { source: { file: upper(input.source.file), member: upper(input.source.member) } } : {})
+	};
+}
+
 function defineView(input: Partial<FakeView>): FakeView {
 	return {
 		...defineTable(input),
-		definition: StringUtils.default(input.definition, () => '')
+		definition: StringUtils.default(input.definition, () => ''),
+		...(input.logicalFile != null ? { logicalFile: defineLogicalFile(input.logicalFile) } : {})
 	};
 }
 

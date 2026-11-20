@@ -9,7 +9,7 @@ import { postFromHost } from '../test-support/host-messages';
 import { renderWebview } from '../test-support/render-webview';
 import { postedMessages } from '../test-support/vscode-api-stub';
 import { App } from './app';
-import { routineParam, systemFunction, systemProcedure, systemTable, systemView } from './test-fixtures';
+import { logicalFile, routineParam, systemFunction, systemProcedure, systemTable, systemView } from './test-fixtures';
 import { DataEditDefaults } from '../../src/utils/data-edit-defaults';
 
 // The schema browser's half of schemas-messages.ts, at the app level: the host pushes that are not
@@ -223,6 +223,143 @@ describe('schemas webview', () => {
 			await user.click(screen.getByRole('button', { name: 'Refresh' }));
 
 			expect(posted().at(-1)).toEqual({ command: 'loadViewDefinition', schema: 'SALES', table: 'ORDERS', source: 'view', forceRefresh: true });
+		});
+	});
+
+	describe('logical files', () => {
+		// Opening one goes through the tree, whose rows are virtualized - fake-layout gives them a viewport.
+		let layout: FakeLayoutHandle;
+
+		beforeEach(() => {
+			layout = useFakeLayout({ viewportHeight: 400, rowHeight: 34 });
+		});
+
+		afterEach(() => {
+			layout.restore();
+		});
+
+		// They come in with the views (see SystemView) and are split out under their own node.
+		async function openLogicalFile(user: ReturnType<typeof userEvent.setup>) {
+			renderSchemas({
+				viewsBySchema: { SALES: [
+					systemView('SALES', 'CUSTORD', { description: 'Orders view' }),
+					logicalFile('SALES', 'ORDERSL1', { description: 'Orders by customer', selectOmit: 'Y' })
+				] }
+			});
+
+			await user.click(screen.getByRole('button', { name: 'SALES' }));
+			expect(screen.getByRole('button', { name: 'Views (1)' })).toBeTruthy();
+			await user.click(screen.getByRole('button', { name: 'Logical Files (1)' }));
+			await user.click(screen.getByRole('button', { name: 'ORDERSL1 (Orders by customer)' }));
+		}
+
+		it('lists a logical file under its own node and opens it with a Source tab in place of Definition', async () => {
+			let user = userEvent.setup();
+			await openLogicalFile(user);
+
+			let [, subTabs] = screen.getAllByRole('tablist');
+			expect(within(subTabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Info', 'Columns', 'Source', 'Data']);
+			expect(selectedSubTab()).toBe('Info');
+		});
+
+		it('shows the tree fields at once, then its SYSFILES detail', async () => {
+			let user = userEvent.setup();
+			await openLogicalFile(user);
+
+			expect(posted()).toEqual([{ command: 'loadLogicalFile', schema: 'SALES', table: 'ORDERSL1' }]);
+			expect(screen.getByText('Select/Omit')).toBeTruthy();
+			expect(screen.queryByText('Check Option')).toBeNull();
+
+			postFromHost<SchemasInboundMessage>({ command: 'logicalFileLoaded', schema: 'SALES', table: 'ORDERSL1', file: {
+				schema: 'SALES', name: 'ORDERSL1', basedOn: [{ library: 'SALES', file: 'ORDERS', member: 'ORDERS', format: 'ORDERSL1R' }],
+				accessPathType: 'KEYED UNIQUE', keyFieldCount: 1, keyFields: 'WONO', maintenance: '*IMMED', selectOmit: true, joinLogical: false, dynamicSelection: false,
+				formatName: 'ORDERSL1R'
+			} });
+
+			expect(screen.getByText('SALES/ORDERS, format ORDERSL1R')).toBeTruthy();
+			expect(screen.getByText('KEYED UNIQUE')).toBeTruthy();
+			expect(screen.getByText('*IMMED')).toBeTruthy();
+			expect(keyRows()).toEqual(['K01 WONO']);
+		});
+
+		// The key list as the green screen labels it, in key order - its own group, so it never mixes with
+		// the Access Path fields.
+		function keyRows(): string[] {
+			let list = screen.getByRole('list', { name: 'Key fields' });
+			return within(list).getAllByRole('listitem').map(item => Array.from(item.children).map(child => child.textContent).join(' '));
+		}
+
+		function postKeys(keyFields: string) {
+			postFromHost<SchemasInboundMessage>({ command: 'logicalFileLoaded', schema: 'SALES', table: 'ORDERSL1', file: {
+				schema: 'SALES', name: 'ORDERSL1', basedOn: [{ library: 'SALES', file: 'WOPMAS' }], accessPathType: 'KEYED',
+				keyFieldCount: keyFields.split(',').length, keyFields: keyFields, selectOmit: false, joinLogical: false, dynamicSelection: false
+			} });
+		}
+
+		it('lists the key fields in key order, marking a descending one, under their own heading', async () => {
+			let user = userEvent.setup();
+			await openLogicalFile(user);
+
+			postKeys('WMWOTP, WMSTAT DESC, BILDAT');
+
+			expect(screen.getByRole('heading', { name: 'Key Fields' })).toBeTruthy();
+			expect(keyRows()).toEqual(['K01 WMWOTP', 'K02 WMSTAT Descending', 'K03 BILDAT']);
+		});
+
+		it('labels the key columns on the Columns tab, and sorts by key order on the Key header', async () => {
+			let user = userEvent.setup();
+			await openLogicalFile(user);
+			await user.click(screen.getByRole('tab', { name: 'Columns' }));
+
+			postFromHost<SchemasInboundMessage>({ command: 'columnsLoaded', schema: 'SALES', table: 'ORDERSL1', columns: [
+				column({ systemName: 'BILDAT', colNo: 1 }),
+				column({ systemName: 'CUSNO', colNo: 2 }),
+				column({ systemName: 'WMSTAT', sqlName: 'WORK_ORDER_STATUS', colNo: 3 }),
+				column({ systemName: 'WMWOTP', colNo: 4 })
+			] });
+			// COLUMN_NAMES may give the long name - WMSTAT is matched by it.
+			postKeys('WMWOTP, WORK_ORDER_STATUS DESC, BILDAT');
+
+			let keyCells = () => screen.getAllByRole('row').slice(1).map(row => {
+				let cells = within(row).getAllByRole('cell');
+				return `${cells[1].textContent}:${cells[3].textContent}`;
+			});
+			expect(keyCells()).toEqual(['K03:BILDAT', ':CUSNO', 'K02 D:WMSTAT', 'K01:WMWOTP']);
+
+			await user.click(screen.getByText('Key'));
+			expect(keyCells()).toEqual(['K01:WMWOTP', 'K02 D:WMSTAT', 'K03:BILDAT', ':CUSNO']);
+		});
+
+		it('keeps the tree fields when SYSFILES cannot be read, and says why', async () => {
+			let user = userEvent.setup();
+			await openLogicalFile(user);
+
+			postFromHost<SchemasInboundMessage>({ command: 'logicalFileError', schema: 'SALES', table: 'ORDERSL1', error: { message: 'SQL0204 - SYSFILES in QSYS2 type *FILE not found.' } });
+
+			expect(screen.getByText(/Failed to read the logical file's description/)).toBeTruthy();
+			expect(screen.getByText('Orders by customer')).toBeTruthy();
+		});
+
+		it('loads the DDS source when the Source tab opens, and says why when there is none', async () => {
+			let user = userEvent.setup();
+			await openLogicalFile(user);
+			await user.click(screen.getByRole('tab', { name: 'Source' }));
+
+			expect(posted().at(-1)).toEqual({ command: 'loadLogicalFileSource', schema: 'SALES', table: 'ORDERSL1' });
+
+			postFromHost<SchemasInboundMessage>({ command: 'logicalFileSourceLoaded', schema: 'SALES', table: 'ORDERSL1', sources: [
+				{ location: 'SALES/QDDSSRC(ORDERSL1)', text: '     A          R ORDERSL1R' }
+			] });
+
+			let editor = screen.getByRole('textbox', { name: 'Logical file source' }) as HTMLTextAreaElement;
+			expect(editor.value).toBe('     A          R ORDERSL1R');
+			expect(screen.getByText('SALES/QDDSSRC(ORDERSL1)')).toBeTruthy();
+
+			await user.click(screen.getByRole('button', { name: 'Refresh' }));
+			expect(posted().at(-1)).toEqual({ command: 'loadLogicalFileSource', schema: 'SALES', table: 'ORDERSL1', forceRefresh: true });
+
+			postFromHost<SchemasInboundMessage>({ command: 'logicalFileSourceLoaded', schema: 'SALES', table: 'ORDERSL1', sources: [], unavailable: 'No source member is recorded for SALES/ORDERSL1.' });
+			expect(screen.getByText('No source member is recorded for SALES/ORDERSL1.')).toBeTruthy();
 		});
 	});
 

@@ -95,7 +95,12 @@ interface Props {
 	 */
 	viewsBySchema?: Record<string, SchemaTreeEntry[]>;
 	/**
-	 * Adds a "Functions (n)" node after Views, one row per function (an overload is its own row) - `table`
+	 * Adds a "Logical Files (n)" node after Views. A logical file is a view in every other respect - its rows
+	 * have a view's key (kind: 'view') and call onSelectView - and, like views, it shows in single-select only.
+	 */
+	logicalFilesBySchema?: Record<string, SchemaTreeEntry[]>;
+	/**
+	 * Adds a "Functions (n)" node after Logical Files, one row per function (an overload is its own row) - `table`
 	 * holds the specific name and `label` what to show. Single-select only, for the same reason as views.
 	 */
 	functionsBySchema?: Record<string, SchemaTreeEntry[]>;
@@ -135,7 +140,7 @@ type FlatRow =
 	| { type: 'schema'; schema: string; tableCount: number; expanded: boolean }
 	| { type: 'tables-node'; group: TableGroup; schema: string; tableCount: number; expanded: boolean }
 	| { type: 'table'; schema: string; entry: SchemaTreeEntry }
-	| { type: 'object-node'; kind: TableKeyKind; schema: string; count: number; expanded: boolean }
+	| { type: 'object-node'; group: ObjectGroupId; schema: string; count: number; expanded: boolean }
 	| { type: 'object'; kind: TableKeyKind; schema: string; entry: SchemaTreeEntry };
 
 // The nodes whose rows are tables - plain tables, and materialized query tables listed apart from them.
@@ -146,11 +151,17 @@ const TABLE_GROUP_LABELS: Record<TableGroup, string> = {
 	mqts: 'Materialized Query Tables'
 };
 
-// The non-table kinds, each with its own node under a schema, in display order after the table groups.
-const OBJECT_GROUPS: { kind: TableKeyKind; label: string }[] = [
-	{ kind: 'view', label: 'Views' },
-	{ kind: 'function', label: 'Functions' },
-	{ kind: 'procedure', label: 'Procedures' }
+// The non-table nodes under a schema, in display order after the table groups. Each lists rows of one kind,
+// but a kind may have more than one node: logical files are view rows (same key, same onSelectView) listed
+// under a node of their own, the way MQTs are table rows under theirs. A node's id is its kind unless it
+// shares the kind with another node.
+type ObjectGroupId = TableKeyKind | 'logical-file';
+
+const OBJECT_GROUPS: { id: ObjectGroupId; kind: TableKeyKind; label: string }[] = [
+	{ id: 'view', kind: 'view', label: 'Views' },
+	{ id: 'logical-file', kind: 'view', label: 'Logical Files' },
+	{ id: 'function', kind: 'function', label: 'Functions' },
+	{ id: 'procedure', kind: 'procedure', label: 'Procedures' }
 ];
 
 const DEFAULT_EMPTY_MESSAGE = 'No schemas match the current filter';
@@ -194,7 +205,7 @@ function flatRowKey(row: FlatRow): string {
 		return `${row.group}-node:${row.schema}`;
 	}
 
-	return row.type === 'object-node' ? `${row.kind}-node:${row.schema}` : `${row.type}:${row.schema}`;
+	return row.type === 'object-node' ? `${row.group}-node:${row.schema}` : `${row.type}:${row.schema}`;
 }
 
 const NO_OBJECTS: Record<string, SchemaTreeEntry[]> = {};
@@ -215,7 +226,7 @@ function sortEntries(entries: SchemaTreeEntry[]): SchemaTreeEntry[] {
 // A schema present in tablesBySchema doesn't necessarily have any tables - a manually added schema
 // (see the "Edit Schema List" menu) can be empty - so a schema row can expand to nothing at all, since
 // empty folders are left out.
-export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsBySchema, functionsBySchema, proceduresBySchema, filterText, onFilterTextChange, selection, menuItems, loading, title, emptyMessage, resizable }: Props) {
+export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsBySchema, logicalFilesBySchema, functionsBySchema, proceduresBySchema, filterText, onFilterTextChange, selection, menuItems, loading, title, emptyMessage, resizable }: Props) {
 	const theme = useTheme();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [collapsed, setCollapsed] = useState(false);
@@ -230,11 +241,11 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 	const [selectionAnchorKey, setSelectionAnchorKey] = useState<string | null>(null);
 	const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
 	const [expandedTablesNodes, setExpandedTablesNodes] = useState<Set<string>>(new Set());
-	// Views/Functions nodes, keyed '<kind>:<schema>'.
+	// Views/Functions nodes, keyed '<group id>:<schema>' (see ObjectGroupId).
 	const [expandedObjectNodes, setExpandedObjectNodes] = useState<Set<string>>(new Set());
 	// While filtering, every visible schema/tables-node auto-expands (see flatRows below) so matches
 	// are visible without manual clicks - this set holds only the ones the user explicitly collapsed
-	// back during that filter, keyed 'schema:x'/'tables:x'/'view:x'/'function:x'/'procedure:x' since a schema and its nodes share a
+	// back during that filter, keyed 'schema:x'/'tables:x'/'view:x'/'logical-file:x'/'function:x'/'procedure:x' since a schema and its nodes share a
 	// name. It's kept entirely separate from expandedSchemas/expandedTablesNodes (the permanent
 	// manual state) and reset whenever the filter is cleared, so clearing the filter reverts to
 	// exactly the pre-filter layout with no snapshot/restore step needed.
@@ -243,11 +254,11 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 	// Views and routines only ever show in single-select mode - see the viewsBySchema prop. A kind whose
 	// map wasn't passed gets no node at all, rather than an empty one.
 	const objectGroups = useMemo(() => {
-		let byKind: Record<TableKeyKind, Record<string, SchemaTreeEntry[]> | undefined> = { view: viewsBySchema, function: functionsBySchema, procedure: proceduresBySchema };
+		let byGroup: Record<ObjectGroupId, Record<string, SchemaTreeEntry[]> | undefined> = { view: viewsBySchema, 'logical-file': logicalFilesBySchema, function: functionsBySchema, procedure: proceduresBySchema };
 		return selection.mode === 'single'
-			? OBJECT_GROUPS.filter(group => byKind[group.kind] != null).map(group => ({ ...group, bySchema: byKind[group.kind] ?? NO_OBJECTS }))
+			? OBJECT_GROUPS.filter(group => byGroup[group.id] != null).map(group => ({ ...group, bySchema: byGroup[group.id] ?? NO_OBJECTS }))
 			: [];
-	}, [viewsBySchema, functionsBySchema, proceduresBySchema, selection.mode]);
+	}, [viewsBySchema, logicalFilesBySchema, functionsBySchema, proceduresBySchema, selection.mode]);
 
 	const schemaNames = useMemo(() => Array.from(new Set([
 		...Object.keys(tablesBySchema),
@@ -268,14 +279,14 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 	const visible = useMemo(() => {
 		let tables: Record<string, SchemaTreeEntry[]> = {};
 		let mqts: Record<string, SchemaTreeEntry[]> = {};
-		let objects: Partial<Record<TableKeyKind, Record<string, SchemaTreeEntry[]>>> = {};
+		let objects: Partial<Record<ObjectGroupId, Record<string, SchemaTreeEntry[]>>> = {};
 		let match = (entries: SchemaTreeEntry[], matchesSchema: boolean) => matchesSchema ? entries : entries.filter(entry => matchesFilter(entry, filter));
 
 		for(let schema of schemaNames) {
 			let matchesSchema = !filter || schema.toLowerCase().includes(filter);
 			let matchedTables = match(tablesBySchema[schema] ?? [], matchesSchema);
 			let matchedMqts = match(mqtsBySchema[schema] ?? [], matchesSchema);
-			let matchedObjects = objectGroups.map(group => ({ kind: group.kind, entries: match(group.bySchema[schema] ?? [], matchesSchema) }));
+			let matchedObjects = objectGroups.map(group => ({ id: group.id, entries: match(group.bySchema[schema] ?? [], matchesSchema) }));
 
 			// A schema whose own name matches stays visible even with no (or no matching) tables -
 			// otherwise an empty added schema would vanish the instant its name is searched for.
@@ -284,7 +295,7 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 				mqts[schema] = matchedMqts;
 
 				for(let matched of matchedObjects) {
-					(objects[matched.kind] ??= {})[schema] = matched.entries;
+					(objects[matched.id] ??= {})[schema] = matched.entries;
 				}
 			}
 		}
@@ -334,15 +345,15 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 				}
 
 				for(let group of objectGroups) {
-					let objects = sortEntries(visible.objects[group.kind]?.[schema] ?? []);
-					let nodeKey = `${group.kind}:${schema}`;
+					let objects = sortEntries(visible.objects[group.id]?.[schema] ?? []);
+					let nodeKey = `${group.id}:${schema}`;
 					let objectsExpanded = filter ? !filterCollapsedOverrides.has(nodeKey) : expandedObjectNodes.has(nodeKey);
 
 					if(objects.length === 0) {
 						continue;
 					}
 
-					rows.push({ type: 'object-node', kind: group.kind, schema, count: objects.length, expanded: objectsExpanded });
+					rows.push({ type: 'object-node', group: group.id, schema, count: objects.length, expanded: objectsExpanded });
 
 					if(objectsExpanded) {
 						for(let entry of objects) {
@@ -388,7 +399,7 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 
 	function toggleTablesNode(group: TableGroup, schema: string) {
 		if(group === 'mqts') {
-			// Kept with the Views/Functions nodes' state - 'mqts' is no object kind, so the key can't collide.
+			// Kept with the Views/Functions nodes' state - 'mqts' is no object group id, so the key can't collide.
 			toggleNodeKey(`mqts:${schema}`);
 			return;
 		}
@@ -400,8 +411,8 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 		}
 	}
 
-	function toggleObjectNode(kind: TableKeyKind, schema: string) {
-		toggleNodeKey(`${kind}:${schema}`);
+	function toggleObjectNode(group: ObjectGroupId, schema: string) {
+		toggleNodeKey(`${group}:${schema}`);
 	}
 
 	function toggleNodeKey(nodeKey: string) {
@@ -631,10 +642,10 @@ export function SchemaTree({ tablesBySchema, mqtsBySchema = NO_OBJECTS, viewsByS
 		}
 
 		if(row.type === 'object-node') {
-			let label = OBJECT_GROUPS.find(group => group.kind === row.kind)?.label;
+			let label = OBJECT_GROUPS.find(group => group.id === row.group)?.label;
 
 			return (
-				<ListItemButton onClick={() => toggleObjectNode(row.kind, row.schema)} sx={{ py: 0.5, pl: 3 }}>
+				<ListItemButton onClick={() => toggleObjectNode(row.group, row.schema)} sx={{ py: 0.5, pl: 3 }}>
 					<ListItemIcon sx={{ minWidth: 24 }}>
 						{row.expanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
 					</ListItemIcon>

@@ -25,7 +25,7 @@ export interface Loaded<T> {
 // read them. Each tab that needs them asks on mount: the host caches per routine (MemoryCache.getRoutineParams), so
 // a second tab asking costs nothing.
 export function useRoutineParams(target: RoutineTarget): Loaded<SchemasRoutineParam[]> {
-	return useRoutineLoad<SchemasRoutineParam[]>(target, 'loadRoutineParams', message => {
+	return useObjectLoad<SchemasRoutineParam[]>(target, 'loadRoutineParams', message => {
 		if (message.command === 'routineParamsLoaded') {
 			return { value: message.params };
 		}
@@ -42,7 +42,7 @@ export interface RoutineDetail {
 
 // The rest of the function's SYSROUTINES row, body included - cached on the host the same way.
 export function useRoutineDetail(target: RoutineTarget): Loaded<RoutineDetail> {
-	return useRoutineLoad<RoutineDetail>(target, 'loadRoutineDetail', message => {
+	return useObjectLoad<RoutineDetail>(target, 'loadRoutineDetail', message => {
 		if (message.command === 'routineDetailLoaded') {
 			return { value: { detail: message.detail, formattedDefinition: message.formattedDefinition } };
 		}
@@ -54,7 +54,7 @@ export function useRoutineDetail(target: RoutineTarget): Loaded<RoutineDetail> {
 // The statement that recreates the routine (QSYS2.GENERATE_SQL), cached on the host. An error here is
 // expected on some systems - the Definition tab falls back to the stored body.
 export function useRoutineDdl(routine: Pick<SchemasSystemRoutine, 'schema' | 'specificName' | 'routineType'>): Loaded<string> {
-	return useRoutineLoad<string>(routine, 'loadRoutineDdl', message => {
+	return useObjectLoad<string>(routine, 'loadRoutineDdl', message => {
 		if (message.command === 'routineDdlLoaded') {
 			return { value: message.ddl };
 		}
@@ -74,7 +74,7 @@ export interface RoutineSource {
 
 // An external routine's program source - read fresh every time it's asked for.
 export function useRoutineSource(target: RoutineTarget): Loaded<RoutineSource> {
-	return useRoutineLoad<RoutineSource>(target, 'loadRoutineSource', message => {
+	return useObjectLoad<RoutineSource>(target, 'loadRoutineSource', message => {
 		if (message.command === 'routineSourceLoaded') {
 			return { value: { program: message.program, entry: message.entry, sources: message.sources, entryModuleFound: message.entryModuleFound, resolvedFromLibraryList: message.resolvedFromLibraryList, unavailable: message.unavailable } };
 		}
@@ -83,12 +83,13 @@ export function useRoutineSource(target: RoutineTarget): Loaded<RoutineSource> {
 	});
 }
 
-type Outcome<T> = { value: T } | { error: DbErrorUtils.SerializedError } | undefined;
+export type Outcome<T> = { value: T } | { error: DbErrorUtils.SerializedError } | undefined;
 
-type LoadCommand = 'loadRoutineParams' | 'loadRoutineDetail' | 'loadRoutineDdl' | 'loadRoutineSource';
+type LoadCommand = 'loadRoutineParams' | 'loadRoutineDetail' | 'loadRoutineDdl' | 'loadRoutineSource' | 'loadLogicalFile' | 'loadLogicalFileSource';
 
-// `extra` carries what one request needs beyond the routine's identity (the DDL's routine type).
-function useRoutineLoad<T>(target: RoutineTarget, command: LoadCommand, read: (message: SchemasInboundMessage) => Outcome<T>, extra?: { routineType?: SchemasSystemRoutine['routineType'] }): Loaded<T> {
+// Asks the host for one object's data and takes the reply addressed to it. Shared with the logical file tabs
+// (logical-file-data.ts), which pass the file's name as `specificName`. `extra` carries what one request needs beyond the routine's identity (the DDL's routine type).
+export function useObjectLoad<T>(target: RoutineTarget, command: LoadCommand, read: (message: SchemasInboundMessage) => Outcome<T>, extra?: { routineType?: SchemasSystemRoutine['routineType'] }): Loaded<T> {
 	const [value, setValue] = useState<T | null>(null);
 	const [error, setError] = useState<DbErrorUtils.SerializedError | null>(null);
 
