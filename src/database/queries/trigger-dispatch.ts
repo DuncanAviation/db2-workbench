@@ -99,7 +99,7 @@ const LITERAL_CONDITION = /(?:\b[A-Z0-9_$#@]+\s*\.\s*)?(?<![A-Z0-9_$#@])([A-Z_$#
 
 /**
  * The `column = 'literal'` conditions each of the dispatcher's statements that reads this table puts on
- * its rows - how a dispatcher skips a routing row switched off ("WHERE TRACTIVE = 'Y'"), read from its
+ * its rows - how a dispatcher skips a routing row switched off ("WHERE RMACTIVE = 'Y'"), read from its
  * own SQL rather than guessed from column names. One entry per statement, in the WHERE clause only.
  * A statement with an OR or a NOT is entered with no conditions: which rows it takes can't be told
  * without evaluating it, so it is taken to read every row and no row is judged passed over.

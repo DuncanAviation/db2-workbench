@@ -169,7 +169,7 @@ export class SqlAssist extends DbAssist {
 		if(options.parseResults.tables?.length) {
 			// SqlParser.parseTables is a flat regex with no concept of CTE-body boundaries, so a
 			// real table used only *inside* a CTE's own definition (e.g. "appuser" in "WITH data AS
-			// (SELECT fnam FROM appuser) SELECT | FROM data") is indistinguishable from one that's
+			// (SELECT firstnm FROM appuser) SELECT | FROM data") is indistinguishable from one that's
 			// actually reachable at the cursor unless we filter it back out here.
 			let inaccessibleTableKeys = CteAssist.getInaccessibleTableNames(options.parseResults.originalSql, options.caretPosition);
 			let tableReferences = options.parseResults.tables.filter(tableReference => !inaccessibleTableKeys.has(CteAssist.getTableKey(tableReference.table, tableReference.alias)));

@@ -790,16 +790,16 @@ describe('SqlAssist', () => {
 			});
 
 			it('shows an explicitly-named CTE column\'s heading, traced back to the real column it came from, the same as a wildcard passthrough would', async () => {
-				// Regression: an explicitly-named column ("select hstdns from apphost", not "select *")
+				// Regression: an explicitly-named column ("select hostnm from sitehost", not "select *")
 				// used to expose no heading at all, even though the wildcard case already resolved one by
 				// recursing into the real table's own metadata.
 				let extension = fakeExtension({
-					columnsByTable: {apphost: [column({systemName: 'HSTDNS', tableName: 'APPHOST', heading: 'Host DNS Name'})]}
+					columnsByTable: {sitehost: [column({systemName: 'HOSTNM', tableName: 'SITEHOST', heading: 'Host Name'})]}
 				});
-				let sqlUpToCursor = 'with data as (select hstdns from apphost) select ';
+				let sqlUpToCursor = 'with data as (select hostnm from sitehost) select ';
 				let fullSql = sqlUpToCursor + 'from data';
 				expect(await items(sqlUpToCursor, fullSql, extension)).to.deep.equal([
-					{label: 'hstdns (Host DNS Name)', insertText: 'hstdns', detail: 'data (cte)', kind: 'Field', sortText: DbAssist.ItemSortOrder.COLUMNS}
+					{label: 'hostnm (Host Name)', insertText: 'hostnm', detail: 'data (cte)', kind: 'Field', sortText: DbAssist.ItemSortOrder.COLUMNS}
 				]);
 			});
 
@@ -813,23 +813,23 @@ describe('SqlAssist', () => {
 			});
 
 			it('does not leak an unrelated, unused CTE\'s own table into the results just because an outer JOIN aliases the same table name', async () => {
-				// Regression: "data2"'s own "apphost" (never referenced outside its own
+				// Regression: "data2"'s own "sitehost" (never referenced outside its own
 				// body) used to show up unaliased alongside "data" and "b" purely because the OUTER
-				// "join apphost b" gave that table name an accessible occurrence elsewhere.
+				// "join sitehost b" gave that table name an accessible occurrence elsewhere.
 				let extension = fakeExtension({
-					columnsByTable: {apphost: [column({systemName: 'HOST_NAME', schema: 'MYSCHEMA', tableName: 'APPHOST'})]}
+					columnsByTable: {sitehost: [column({systemName: 'HOST_NAME', schema: 'MYSCHEMA', tableName: 'SITEHOST'})]}
 				});
-				let sqlUpToCursor = 'with data as (\nselect fnam\nfrom appuser\nlimit 1000\n),\n\ndata2 as (\n\tselect *\n\tfrom apphost\n)\n\nselect ';
-				let fullSql = sqlUpToCursor + 'from data\njoin apphost b';
+				let sqlUpToCursor = 'with data as (\nselect firstnm\nfrom appuser\nlimit 1000\n),\n\ndata2 as (\n\tselect *\n\tfrom sitehost\n)\n\nselect ';
+				let fullSql = sqlUpToCursor + 'from data\njoin sitehost b';
 				expect(await items(sqlUpToCursor, fullSql, extension)).to.deep.equal([
 					// No heading resolves here (the fake's columnsByTable has no "appuser" entry, so
-					// the "fnam" -> appuser lookup comes back empty) -- label falls back to the bare
+					// the "firstnm" -> appuser lookup comes back empty) -- label falls back to the bare
 					// unqualified name, same fallback shape buildColumnItems uses for a real column
 					// with no heading, even though insertText stays qualified.
-					{label: 'fnam', insertText: 'data.fnam', detail: 'data (cte)', kind: 'Field', sortText: DbAssist.ItemSortOrder.COLUMNS},
-					{label: '[All from b]', insertText: 'b.HOST_NAME', detail: 'myschema.apphost', kind: 'Field', sortText: DbAssist.ItemSortOrder.CUSTOM},
-					{label: 'b.*', insertText: 'b.*', detail: 'myschema.apphost', kind: 'Field', sortText: DbAssist.ItemSortOrder.CUSTOM},
-					{label: 'HOST_NAME', insertText: 'b.HOST_NAME', detail: 'myschema.apphost', kind: 'Field', sortText: DbAssist.ItemSortOrder.COLUMNS}
+					{label: 'firstnm', insertText: 'data.firstnm', detail: 'data (cte)', kind: 'Field', sortText: DbAssist.ItemSortOrder.COLUMNS},
+					{label: '[All from b]', insertText: 'b.HOST_NAME', detail: 'myschema.sitehost', kind: 'Field', sortText: DbAssist.ItemSortOrder.CUSTOM},
+					{label: 'b.*', insertText: 'b.*', detail: 'myschema.sitehost', kind: 'Field', sortText: DbAssist.ItemSortOrder.CUSTOM},
+					{label: 'HOST_NAME', insertText: 'b.HOST_NAME', detail: 'myschema.sitehost', kind: 'Field', sortText: DbAssist.ItemSortOrder.COLUMNS}
 				]);
 			});
 		});

@@ -112,8 +112,8 @@ describe('resolveColumns', () => {
 
 	describe('enhanced case (a connected column matched against imported data)', () => {
 		it('gap-fills text from a matching import when DB2\'s own is blank', () => {
-			let columns = [systemColumn({systemName: 'EMLNFY', sqlName: 'ACCT_EMAILNOTIFY', text: ''})];
-			let imported = [importedTable({columns: [{name: 'ACCT_EMAILNOTIFY', type: 'CHAR', nullable: false, description: 'Use email for notifications'}]})];
+			let columns = [systemColumn({systemName: 'EMOPTN', sqlName: 'ACCT_EMAILOPTIN', text: ''})];
+			let imported = [importedTable({columns: [{name: 'ACCT_EMAILOPTIN', type: 'CHAR', nullable: false, description: 'Use email for notifications'}]})];
 			let resolved = resolveColumns(columns, imported);
 			expect(resolved[0].text).to.equal('Use email for notifications');
 			expect(resolved[0].importedFields).to.deep.equal(['text']);
@@ -126,8 +126,8 @@ describe('resolveColumns', () => {
 		});
 
 		it('does not override a real DB2 text value that is already present - gap-fill only, not override', () => {
-			let columns = [systemColumn({systemName: 'EMLNFY', sqlName: 'ACCT_EMAILNOTIFY', text: 'Original DB2 text'})];
-			let imported = [importedTable({columns: [{name: 'ACCT_EMAILNOTIFY', type: 'CHAR', nullable: false, description: 'Relabeled by import'}]})];
+			let columns = [systemColumn({systemName: 'EMOPTN', sqlName: 'ACCT_EMAILOPTIN', text: 'Original DB2 text'})];
+			let imported = [importedTable({columns: [{name: 'ACCT_EMAILOPTIN', type: 'CHAR', nullable: false, description: 'Relabeled by import'}]})];
 			let resolved = resolveColumns(columns, imported);
 			expect(resolved[0].text).to.equal('Original DB2 text');
 			expect(resolved[0].importedFields).to.deep.equal([]);
@@ -153,16 +153,16 @@ describe('resolveColumns', () => {
 		// showed a genuinely new imported column (no DB2 counterpart at all) silently vanishing on an
 		// Enhanced table was surprising, not useful - the user asked for it to show, flagged, instead.
 		it('surfaces a column that exists only in the import as a new, flagged row', () => {
-			let columns = [systemColumn({systemName: 'UID'})];
+			let columns = [systemColumn({systemName: 'LOGINID'})];
 			let imported = [importedTable({columns: [
-				{name: 'UID', type: 'CHAR', nullable: false},
-				{name: 'TMZN', type: 'CHAR(50)', nullable: false, sqlName: 'ACCT_TIMEZONE', description: 'Time Zone'}
+				{name: 'LOGINID', type: 'CHAR', nullable: false},
+				{name: 'TZCD', type: 'CHAR(50)', nullable: false, sqlName: 'ACCT_TZCODE', description: 'Time Zone'}
 			]})];
 			let resolved = resolveColumns(columns, imported);
 			expect(resolved).to.have.length(2);
-			expect(resolved[0]).to.include({systemName: 'UID', isNew: false});
+			expect(resolved[0]).to.include({systemName: 'LOGINID', isNew: false});
 			expect(resolved[1]).to.deep.equal({
-				systemName: 'TMZN', sqlName: 'ACCT_TIMEZONE', dataType: 'CHAR(50)', nulls: 'N', text: 'Time Zone', isNew: true, importedFields: []
+				systemName: 'TZCD', sqlName: 'ACCT_TZCODE', dataType: 'CHAR(50)', nulls: 'N', text: 'Time Zone', isNew: true, importedFields: []
 			});
 		});
 
@@ -192,14 +192,14 @@ describe('resolveTableKeys', () => {
 	});
 
 	it('builds a primary key from the first import that declares one, using its real name', () => {
-		let imported = [importedTable({primaryKeyColumns: ['UID'], primaryKeyName: 'APPUSER_PRIMARY'})];
+		let imported = [importedTable({primaryKeyColumns: ['LOGINID'], primaryKeyName: 'APPUSER_PRIMARY'})];
 		expect(resolveTableKeys(undefined, imported)).to.deep.equal([
-			{constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'UID', ordinalPosition: 1, isNew: true}
+			{constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'LOGINID', ordinalPosition: 1, isNew: true}
 		]);
 	});
 
 	it('falls back to a synthetic shared name when the source format could not name the primary key', () => {
-		let imported = [importedTable({primaryKeyColumns: ['UID']})];
+		let imported = [importedTable({primaryKeyColumns: ['LOGINID']})];
 		expect(resolveTableKeys(undefined, imported)[0].constraintName).to.equal('imported-pk');
 	});
 
@@ -215,9 +215,9 @@ describe('resolveTableKeys', () => {
 	});
 
 	it('builds a named unique key group and preserves column order', () => {
-		let imported = [importedTable({uniqueKeys: [{name: 'APPUSER_RCID', columns: ['RCID']}]})];
+		let imported = [importedTable({uniqueKeys: [{name: 'APPUSER_RECNO', columns: ['RECNO']}]})];
 		expect(resolveTableKeys(undefined, imported)).to.deep.equal([
-			{constraintName: 'APPUSER_RCID', constraintType: 'UNIQUE', systemColumnName: 'RCID', ordinalPosition: 1, isNew: true}
+			{constraintName: 'APPUSER_RECNO', constraintType: 'UNIQUE', systemColumnName: 'RECNO', ordinalPosition: 1, isNew: true}
 		]);
 	});
 
@@ -240,7 +240,7 @@ describe('resolveTableKeys', () => {
 
 	describe('enhanced case (a connected table with real keys of its own)', () => {
 		it('surfaces a genuinely new imported unique constraint alongside the connected table\'s own keys', () => {
-			let keys = [systemTableKey({constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'UID'})];
+			let keys = [systemTableKey({constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'LOGINID'})];
 			let imported = [importedTable({uniqueKeys: [{name: 'APPUSER_EMAIL_UQ', columns: ['EMAIL']}]})];
 			let resolved = resolveTableKeys(keys, imported);
 			expect(resolved).to.have.length(2);
@@ -249,8 +249,8 @@ describe('resolveTableKeys', () => {
 		});
 
 		it('does not duplicate an imported unique constraint that covers the same column set as a real one', () => {
-			let keys = [systemTableKey({constraintName: 'APPUSER_RCID', constraintType: 'UNIQUE', systemColumnName: 'RCID'})];
-			let imported = [importedTable({uniqueKeys: [{name: 'DIFFERENT_NAME', columns: ['RCID']}]})];
+			let keys = [systemTableKey({constraintName: 'APPUSER_RECNO', constraintType: 'UNIQUE', systemColumnName: 'RECNO'})];
+			let imported = [importedTable({uniqueKeys: [{name: 'DIFFERENT_NAME', columns: ['RECNO']}]})];
 			expect(resolveTableKeys(keys, imported)).to.have.length(1);
 		});
 
@@ -262,7 +262,7 @@ describe('resolveTableKeys', () => {
 		});
 
 		it('does not surface an imported primary key when the connected table already has one of its own', () => {
-			let keys = [systemTableKey({constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'UID'})];
+			let keys = [systemTableKey({constraintName: 'APPUSER_PRIMARY', constraintType: 'PRIMARY KEY', systemColumnName: 'LOGINID'})];
 			let imported = [importedTable({primaryKeyColumns: ['SOMETHING_ELSE'], primaryKeyName: 'BOGUS_PK'})];
 			let resolved = resolveTableKeys(keys, imported);
 			expect(resolved).to.have.length(1);
@@ -300,10 +300,10 @@ describe('resolveForeignKeys', () => {
 
 	it('uses a real imported constraint name and its referential actions when the source format provided them', () => {
 		let imported = [importedTable({
-			foreignKeys: [{name: 'APPUSRL_ROLE', columns: ['RLID'], referencedSchema: 'SCH', referencedTable: 'PARENT', referencedColumns: ['ID'], updateRule: 'NO ACTION', deleteRule: 'CASCADE'}]
+			foreignKeys: [{name: 'USERROLE_FK', columns: ['ROLEID'], referencedSchema: 'SCH', referencedTable: 'PARENT', referencedColumns: ['ID'], updateRule: 'NO ACTION', deleteRule: 'CASCADE'}]
 		})];
 		let resolved = resolveForeignKeys(undefined, imported);
-		expect(resolved[0]).to.include({constraintName: 'APPUSRL_ROLE', updateRule: 'NO ACTION', deleteRule: 'CASCADE'});
+		expect(resolved[0]).to.include({constraintName: 'USERROLE_FK', updateRule: 'NO ACTION', deleteRule: 'CASCADE'});
 	});
 
 	it('treats the whole relationship (columns + referenced table/columns) as identity when deduplicating', () => {
@@ -324,7 +324,7 @@ describe('resolveForeignKeys', () => {
 	describe('enhanced case (a connected table with real foreign keys of its own)', () => {
 		it('surfaces a genuinely new imported relationship alongside the connected table\'s own foreign keys - the motivating use case', () => {
 			let foreignKeys = [systemForeignKey({constraintName: 'REAL_FK', systemColumnName: 'A', referencedTable: 'REAL_PARENT', referencedSystemColumnName: 'ID'})];
-			let imported = [importedTable({foreignKeys: [{name: 'RPTOWNER_FK', columns: ['RPTOWNER'], referencedSchema: 'ACME', referencedTable: 'APPUSER', referencedColumns: ['UID']}]})];
+			let imported = [importedTable({foreignKeys: [{name: 'RPTOWNER_FK', columns: ['RPTOWNER'], referencedSchema: 'ACME', referencedTable: 'APPUSER', referencedColumns: ['LOGINID']}]})];
 			let resolved = resolveForeignKeys(foreignKeys, imported);
 			expect(resolved).to.have.length(2);
 			expect(resolved[0]).to.include({constraintName: 'REAL_FK', isNew: false});
@@ -498,16 +498,16 @@ describe('resolveIndexes', () => {
 		// without resolving both sides to the same identity, every index on a table like this would show
 		// up "new" on every reimport of that table's own just-exported file, even though nothing changed.
 		it('matches a connected index reported with long column names against an imported index using short names, given the table\'s column list', () => {
-			let indexes = [systemIndex({indexName: 'REAL_IDX', keyColumns: 'ACCT_UNIVERSALID'})];
-			let imported = [importedTable({indexes: [{name: 'REAL_IDX', columns: ['UID'], unique: false}]})];
-			let columns = [systemColumn({systemName: 'UID', sqlName: 'ACCT_UNIVERSALID'})];
+			let indexes = [systemIndex({indexName: 'REAL_IDX', keyColumns: 'ACCT_LOGINID'})];
+			let imported = [importedTable({indexes: [{name: 'REAL_IDX', columns: ['LOGINID'], unique: false}]})];
+			let columns = [systemColumn({systemName: 'LOGINID', sqlName: 'ACCT_LOGINID'})];
 			expect(resolveIndexes(indexes, imported, columns)).to.have.length(1);
 		});
 
 		it('still treats a genuinely new imported index as new when the table\'s column list is supplied', () => {
-			let indexes = [systemIndex({indexName: 'REAL_IDX', keyColumns: 'ACCT_UNIVERSALID'})];
-			let imported = [importedTable({indexes: [{name: 'NEW_IDX', columns: ['USRTYPE'], unique: false}]})];
-			let columns = [systemColumn({systemName: 'UID', sqlName: 'ACCT_UNIVERSALID'}), systemColumn({systemName: 'USRTYPE', sqlName: 'USER_TYPE'})];
+			let indexes = [systemIndex({indexName: 'REAL_IDX', keyColumns: 'ACCT_LOGINID'})];
+			let imported = [importedTable({indexes: [{name: 'NEW_IDX', columns: ['USRKIND'], unique: false}]})];
+			let columns = [systemColumn({systemName: 'LOGINID', sqlName: 'ACCT_LOGINID'}), systemColumn({systemName: 'USRKIND', sqlName: 'USER_TYPE'})];
 			let resolved = resolveIndexes(indexes, imported, columns);
 			expect(resolved).to.have.length(2);
 			expect(resolved[1]).to.include({indexName: 'NEW_IDX', isNew: true});

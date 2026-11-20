@@ -207,7 +207,7 @@ export class DbConnection {
 		try {
 			let connection = options.useWorkerConnection ? this.workerConnection : this.connection;
 			// The driver looks the procedure up in the catalog by exact name, where DB2 stores ordinary
-			// identifiers uppercase - "call appl.proc" (or a lowercase catalog) would otherwise find nothing
+			// identifiers uppercase - "call prodlib.proc" (or a lowercase catalog) would otherwise find nothing
 			return await connection.callProcedure({
 				...options,
 				catalog: options.catalog?.toUpperCase(),

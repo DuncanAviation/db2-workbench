@@ -64,7 +64,7 @@ describe('DanglingJoinRepair', () => {
 		});
 
 		it('appends "ON 1=1" to a dangling join at the end of the text', () => {
-			expect(DanglingJoinRepair.repair('select from data join apphost b')).to.equal('select from data join apphost b ON 1=1');
+			expect(DanglingJoinRepair.repair('select from data join sitehost b')).to.equal('select from data join sitehost b ON 1=1');
 		});
 
 		it('appends "ON 1=1" to a dangling join before a following clause keyword', () => {
@@ -72,7 +72,7 @@ describe('DanglingJoinRepair', () => {
 		});
 
 		it('leaves a join that already has ON untouched', () => {
-			let sql = 'select from data join apphost b on data.x = b.id';
+			let sql = 'select from data join sitehost b on data.x = b.id';
 			expect(DanglingJoinRepair.repair(sql)).to.equal(sql);
 		});
 

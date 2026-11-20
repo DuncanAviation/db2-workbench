@@ -24,7 +24,7 @@ const SCHEMA = 'SALES';
 const TABLE = 'CUSTOMER';
 
 function tableKey(overrides: Partial<ResolvedTableKey> = {}): ResolvedTableKey {
-	return { constraintName: 'CUSTOMER_PK', constraintType: 'PRIMARY KEY', columnName: 'CUSTOMER_NUMBER', systemColumnName: 'CUSNO', ordinalPosition: 1, isNew: false, ...overrides };
+	return { constraintName: 'CUSTOMER_PK', constraintType: 'PRIMARY KEY', columnName: 'CUSTOMER_NUMBER', systemColumnName: 'CUSTNO', ordinalPosition: 1, isNew: false, ...overrides };
 }
 
 function foreignKey(overrides: Partial<ResolvedForeignKey> = {}): ResolvedForeignKey {
@@ -676,19 +676,19 @@ describe('schema browser catalog sub-tabs', () => {
 			await chooseRowAction(user, 'CUSTOMER_AUDIT', 'View Source');
 			postFromHost<SchemasInboundMessage>({
 				command: 'triggerSourceLoaded', schema: SCHEMA, table: TABLE, triggerName: 'CUSTOMER_AUDIT',
-				sources: [{ module: 'TG_MED_M01', location: 'SALES/QSRCF(TG_MED_M01)', text: 'main() {}' }],
+				sources: [{ module: 'TRGDSP01', location: 'SALES/QSRCF(TRGDSP01)', text: 'main() {}' }],
 				handlers: [{
-					program: 'SALES/CUSTRG (*SRVPGM)', object: 'CUSTRG', entry: 'TRIGGERSERVICE', via: 'CTL/TRGROUT',
-					sources: [{ module: 'CUSTRG', location: 'SALES/QRPGLESRC(CUSTRG)', text: 'dcl-proc triggerService export;' }]
+					program: 'SALES/CUSTRG (*SRVPGM)', object: 'CUSTRG', entry: 'TRIGGERHANDLER', via: 'CTL/RTEMAP',
+					sources: [{ module: 'CUSTRG', location: 'SALES/QRPGLESRC(CUSTRG)', text: 'dcl-proc TRIGGERHANDLER export;' }]
 				}]
 			});
 
 			let dialog = within(screen.getByRole('dialog'));
-			expect(dialog.getByText('Calls SALES/CUSTRG (*SRVPGM) procedure TRIGGERSERVICE for this table, through CTL/TRGROUT')).toBeTruthy();
-			expect(dialog.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['CUSTRG', 'TG_MED: TG_MED_M01']);
-			expect(sourceText()).toBe('dcl-proc triggerService export;');
+			expect(dialog.getByText('Calls SALES/CUSTRG (*SRVPGM) procedure TRIGGERHANDLER for this table, through CTL/RTEMAP')).toBeTruthy();
+			expect(dialog.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['CUSTRG', 'TG_MED: TRGDSP01']);
+			expect(sourceText()).toBe('dcl-proc TRIGGERHANDLER export;');
 
-			await user.click(dialog.getByRole('tab', { name: 'TG_MED: TG_MED_M01' }));
+			await user.click(dialog.getByRole('tab', { name: 'TG_MED: TRGDSP01' }));
 			expect(sourceText()).toBe('main() {}');
 			expect(dialog.queryByRole('alert')).toBeNull();
 		});
@@ -700,19 +700,19 @@ describe('schema browser catalog sub-tabs', () => {
 			await chooseRowAction(user, 'CUSTOMER_AUDIT', 'View Source');
 			postFromHost<SchemasInboundMessage>({
 				command: 'triggerSourceLoaded', schema: SCHEMA, table: TABLE, triggerName: 'CUSTOMER_AUDIT',
-				sources: [{ module: 'TG_MED_M01', location: 'SALES/QSRCF(TG_MED_M01)', text: 'main() {}' }],
+				sources: [{ module: 'TRGDSP01', location: 'SALES/QSRCF(TRGDSP01)', text: 'main() {}' }],
 				handlers: [{
-					program: 'SALES/CUSTRG (*SRVPGM)', object: 'CUSTRG', entry: 'TRIGGERSERVICE', via: 'CTL/TRGROUT',
-					unselected: { column: 'TRACTIVE', value: 'Y', actual: 'N' },
-					sources: [{ module: 'CUSTRG', location: 'SALES/QRPGLESRC(CUSTRG)', text: 'dcl-proc triggerService export;' }]
+					program: 'SALES/CUSTRG (*SRVPGM)', object: 'CUSTRG', entry: 'TRIGGERHANDLER', via: 'CTL/RTEMAP',
+					unselected: { column: 'RMACTIVE', value: 'Y', actual: 'N' },
+					sources: [{ module: 'CUSTRG', location: 'SALES/QRPGLESRC(CUSTRG)', text: 'dcl-proc TRIGGERHANDLER export;' }]
 				}]
 			});
 
 			let dialog = within(screen.getByRole('dialog'));
 			let alert = dialog.getByRole('alert');
-			expect(alert.textContent).toBe('Inactive: TRACTIVE is \'N\' for CUSTRG in CTL/TRGROUT, and TG_MED only reads rows where TRACTIVE = \'Y\'');
+			expect(alert.textContent).toBe('Inactive: RMACTIVE is \'N\' for CUSTRG in CTL/RTEMAP, and TG_MED only reads rows where RMACTIVE = \'Y\'');
 			expect(alert.className).toMatch(/Warning/);
-			expect(sourceText()).toBe('dcl-proc triggerService export;');
+			expect(sourceText()).toBe('dcl-proc TRIGGERHANDLER export;');
 		});
 
 		it('shows the notice on a copy read in place of a missing member, and a missing member with no copy as a message', async () => {

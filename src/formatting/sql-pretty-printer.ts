@@ -509,6 +509,9 @@ export class SqlPrettyPrinter {
 		let chunks: SqlPrettyPrinter.FormatToken[][] = [];
 		let current: SqlPrettyPrinter.FormatToken[] = [];
 		let depth = 0;
+		// An AND/OR inside a CASE expression ("CASE WHEN a = 1 AND b = 2 THEN ...") belongs to the
+		// WHEN's condition, not to the clause, so it never starts a new line.
+		let caseDepth = 0;
 
 		for(let token of tokens) {
 			if(token.type === SqlTokenizer.TokenType.PUNCTUATION) {
@@ -517,9 +520,17 @@ export class SqlPrettyPrinter {
 				} else if(token.text === ')') {
 					depth = Math.max(0, depth - 1);
 				}
+			} else if(depth === 0 && token.type === SqlTokenizer.TokenType.WORD) {
+				let word = token.text.toUpperCase();
+
+				if(word === 'CASE') {
+					caseDepth++;
+				} else if(word === 'END') {
+					caseDepth = Math.max(0, caseDepth - 1);
+				}
 			}
 
-			let isLogicalOperator = depth === 0 && token.type === SqlTokenizer.TokenType.WORD
+			let isLogicalOperator = depth === 0 && caseDepth === 0 && token.type === SqlTokenizer.TokenType.WORD
 				&& (token.text.toUpperCase() === 'AND' || token.text.toUpperCase() === 'OR');
 
 			if(isLogicalOperator) {
@@ -659,7 +670,9 @@ export class SqlPrettyPrinter {
 		}
 
 		if(token.type === SqlTokenizer.TokenType.WORD) {
-			return !KeywordTable.LOGICAL_KEYWORDS.includes(token.text.toUpperCase());
+			// END closes a CASE expression, so it ends a term the way ")" does ("CASE ... END = x").
+			let word = token.text.toUpperCase();
+			return word === 'END' || !KeywordTable.LOGICAL_KEYWORDS.includes(word);
 		}
 
 		return token.type === SqlTokenizer.TokenType.QUOTED_IDENTIFIER

@@ -56,7 +56,7 @@ const MODEL: DiagramModel = {
 	tables: [
 		{
 			id: 'SALES.CUSTOMER', schemaId: 'SALES', name: 'CUSTOMER', position: CUSTOMER_POSITION,
-			columns: [column('CUSTOMER_NUMBER', { shortName: 'CUSNO', longName: 'CUSTOMER_NUMBER', primaryKey: true })]
+			columns: [column('CUSTOMER_NUMBER', { shortName: 'CUSTNO', longName: 'CUSTOMER_NUMBER', primaryKey: true })]
 		},
 		{
 			id: 'SALES.ORDERS', schemaId: 'SALES', name: 'ORDERS', position: ORDERS_POSITION,
@@ -321,7 +321,7 @@ describe('diagram webview in a real browser', () => {
 
 			// The dragHandle restriction in buildNodes: a mousedown outside the header starts no drag, so a
 			// column click can't move the table and swallow the click with it.
-			await drag(columnRow('SALES.CUSTOMER', 'CUSNO'), DRAG_DISTANCE);
+			await drag(columnRow('SALES.CUSTOMER', 'CUSTNO'), DRAG_DISTANCE);
 
 			expect(layoutMessages()).toEqual([]);
 			expect(screenBox(flowNode('SALES.CUSTOMER'))).toEqual(before);

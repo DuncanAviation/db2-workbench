@@ -397,6 +397,25 @@ describe('SqlPrettyPrinter', () => {
 		});
 	});
 
+	describe('DB2 for i syntax', () => {
+		it('starts a clause at every exception join', () => {
+			let result = format('select a.id from a exception join b on b.id = a.id left exception join c on c.id = a.id right exception join d on d.id = a.id', {clauseLayout: 'compact'});
+			expect(result).to.equal('SELECT a.id\nFROM a\nEXCEPTION JOIN b ON b.id = a.id\nLEFT EXCEPTION JOIN c ON c.id = a.id\nRIGHT EXCEPTION JOIN d ON d.id = a.id');
+		});
+	});
+
+	describe('CASE expressions', () => {
+		it('keeps an AND inside a CASE on the WHEN it belongs to', () => {
+			let result = format('select a from t where x = 1 and case when b = 1 and c = 2 then 3 end = 4 or y = 5', {clauseLayout: 'compact'});
+			expect(result).to.equal('SELECT a\nFROM t\nWHERE x = 1\nAND CASE WHEN b = 1 AND c = 2 THEN 3 END = 4\nOR y = 5');
+		});
+
+		it('spaces an operator after END like one after any other term', () => {
+			expect(format('select a from t where case when b = 1 then 2 end = 3', {clauseLayout: 'compact'})).to.equal('SELECT a\nFROM t\nWHERE CASE WHEN b = 1 THEN 2 END = 3');
+			expect(format('select a from t where case when b = 1 then 2 end=3', {clauseLayout: 'compact', denseOperators: true})).to.equal('SELECT a\nFROM t\nWHERE CASE WHEN b=1 THEN 2 END=3');
+		});
+	});
+
 	describe('denseOperators', () => {
 		it('removes spaces around infix operators but keeps them around AND/OR', () => {
 			let result = format('select id from employees where id=1 and salary>=1000', {denseOperators: true});
@@ -582,16 +601,16 @@ describe('SqlPrettyPrinter', () => {
 		});
 
 		it('does not leave a blank line before FROM when a trailing comment sits on the last SELECT column', () => {
-			let result = format('select rcid, email -- trailing note\nfrom appuser');
-			expect(result).to.equal('SELECT\n  rcid,\n  email -- trailing note\nFROM\n  appuser');
+			let result = format('select id, email -- trailing note\nfrom appuser');
+			expect(result).to.equal('SELECT\n  id,\n  email -- trailing note\nFROM\n  appuser');
 		});
 
 		it('does not knock the last SELECT column onto its own line just because a trailing comment follows it', () => {
 			let result = format(
-				'select rcid, rcdsts, usrtype, fnam, lnam, mnam, prfnam, email -- trailing note\nfrom appuser',
+				'select id, status, kind, first, last, middle, alias, email -- trailing note\nfrom appuser',
 				{selectFieldWrapping: 'wrapToWidth', expressionMaxWidth: 80}
 			);
-			expect(result).to.equal('SELECT\n  rcid, rcdsts, usrtype, fnam, lnam, mnam, prfnam, email -- trailing note\nFROM\n  appuser');
+			expect(result).to.equal('SELECT\n  id, status, kind, first, last, middle, alias, email -- trailing note\nFROM\n  appuser');
 		});
 
 		it('moves the comma after a commented SELECT column to lead the next column, rather than leaving it alone on a line', () => {

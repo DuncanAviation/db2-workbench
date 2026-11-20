@@ -7,15 +7,15 @@ function reason(sql: string): string | undefined {
 
 describe('SqlImportValidator.check', () => {
 	it('accepts a plain SELECT', () => {
-		expect(reason('select schema1, name1 from appdbrl')).to.be.undefined;
+		expect(reason('select schema1, name1 from dbrole')).to.be.undefined;
 	});
 
 	it('accepts a common table expression', () => {
-		expect(reason('with source as (select * from appdbrl) select * from source')).to.be.undefined;
+		expect(reason('with source as (select * from dbrole) select * from source')).to.be.undefined;
 	});
 
 	it('accepts a trailing semicolon', () => {
-		expect(reason('select * from appdbrl;')).to.be.undefined;
+		expect(reason('select * from dbrole;')).to.be.undefined;
 	});
 
 	it('rejects an empty statement', () => {
@@ -27,7 +27,7 @@ describe('SqlImportValidator.check', () => {
 	});
 
 	it('rejects a second statement', () => {
-		expect(reason('select * from appdbrl; delete from appdbrl')).to.contain('single statement');
+		expect(reason('select * from dbrole; delete from dbrole')).to.contain('single statement');
 	});
 
 	it('rejects data change keywords', () => {

@@ -78,7 +78,7 @@ describe('autoMapSqlImportColumns', () => {
 	});
 
 	it('leaves an unrecognized column unmapped', () => {
-		expect(autoMapSqlImportColumns('tables', ['APPDBRL_RCID'])).to.eql({});
+		expect(autoMapSqlImportColumns('tables', ['DBROLE_RECNO'])).to.eql({});
 	});
 
 	it('never maps a target that belongs to another section', () => {

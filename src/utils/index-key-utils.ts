@@ -3,12 +3,12 @@
 export class IndexKeyUtils {
 	/**
 	 * Splits QSYS2.SYSPARTITIONINDEXSTAT.COLUMN_NAMES - an index's or keyed logical file's key, in key order
-	 * ("WMWOTP, WMSTAT DESC, BILDAT") - into its keys. Two things a plain split on commas gets wrong, both
+	 * ("JOBTYPE, JOBSTAT DESC, BILLDT") - into its keys. Two things a plain split on commas gets wrong, both
 	 * seen live:
-	 * - A trailing " DESC" marks a descending key, but a column may itself be named DESC: "DESC, WMSTAT"
+	 * - A trailing " DESC" marks a descending key, but a column may itself be named DESC: "DESC, JOBSTAT"
 	 *   starts with the column DESC, and "DESC DESC" is that column descending. Only a word after the name
 	 *   is a direction.
-	 * - An expression key ("CHAR ( SUBSTR ( WONO , 1 , 4 ) , 5 )") has commas inside its parentheses, so
+	 * - An expression key ("CHAR ( SUBSTR ( JOBNO , 1 , 4 ) , 5 )") has commas inside its parentheses, so
 	 *   only a comma outside every parenthesis separates keys. Quoted names are kept whole the same way.
 	 */
 	static parseKeyColumns(columnNames: string | null | undefined): IndexKeyUtils.KeyColumn[] {

@@ -113,7 +113,7 @@ export class SqlTokenizer {
 			return SqlTokenizer.TokenType.NUMBER;
 		}
 
-		// DB2-for-i identifiers routinely include "#"/"$"/"@" (e.g. "APP#HIST") on top of the usual
+		// DB2-for-i identifiers routinely include "#"/"$"/"@" (e.g. "ORD#HIST") on top of the usual
 		// letters/digits/underscore -- allowed here even though Postgres's own identifier grammar
 		// wouldn't lex them as part of a single WORD token itself, since classification runs on the
 		// token's already-lexed text, not on re-lexing raw characters.

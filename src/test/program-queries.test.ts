@@ -98,21 +98,21 @@ suite('ProgramQueries against the fake driver', () => {
 						name: 'SRV1',
 						objectType: '*SRVPGM',
 						modules: [
-							{ name: 'SRV1A', sourceLibrary: 'DEVTEST', sourceFile: 'DBSOURCE', sourceMember: 'SRV1A', created: '2026-03-01 08:00:00.000000' },
-							{ name: 'SRV1B', sourceLibrary: 'DEVTEST', sourceFile: 'DBSOURCE', sourceMember: 'SRV1B', created: '2026-03-01 08:00:00.000000' },
-							{ name: 'SRV1C', sourceLibrary: 'PROD', sourceFile: 'DBSOURCE', sourceMember: 'SRV1C', created: '2026-03-01 08:00:00.000000' }
+							{ name: 'SRV1A', sourceLibrary: 'TESTLIB', sourceFile: 'SQLSRC', sourceMember: 'SRV1A', created: '2026-03-01 08:00:00.000000' },
+							{ name: 'SRV1B', sourceLibrary: 'TESTLIB', sourceFile: 'SQLSRC', sourceMember: 'SRV1B', created: '2026-03-01 08:00:00.000000' },
+							{ name: 'SRV1C', sourceLibrary: 'PROD', sourceFile: 'SQLSRC', sourceMember: 'SRV1C', created: '2026-03-01 08:00:00.000000' }
 						]
 					}],
 					sourceMembers: [
-						{ file: 'DBSOURCE', member: 'SRV1A', lines: ['**free', '// prod copy'], lastChanged: '2026-02-01 08:00:00.000000' },
-						{ file: 'DBSOURCE', member: 'SRV1C', lines: ['**free', '// still where it was compiled'] }
+						{ file: 'SQLSRC', member: 'SRV1A', lines: ['**free', '// prod copy'], lastChanged: '2026-02-01 08:00:00.000000' },
+						{ file: 'SQLSRC', member: 'SRV1C', lines: ['**free', '// still where it was compiled'] }
 					]
 				},
 				{
 					name: 'PRODLIB',
 					onLibraryList: false,
 					sourceMembers: [
-						{ file: 'DBSOURCE', member: 'SRV1A', lines: ['**free', '// git copy'], lastChanged: '2026-04-01 08:00:00.000000' }
+						{ file: 'SQLSRC', member: 'SRV1A', lines: ['**free', '// git copy'], lastChanged: '2026-04-01 08:00:00.000000' }
 					]
 				}
 			]
@@ -125,17 +125,17 @@ suite('ProgramQueries against the fake driver', () => {
 			let sources = await extension.programQueries.readSources(options, locations ?? [], { programLibrary: 'PROD' });
 
 			assert.deepStrictEqual(sources.map(source => [source.location.module, `${source.location.library}/${source.location.file}(${source.location.member})`, source.text, source.unavailable, source.notice?.severity]), [
-				['SRV1A', 'PROD/DBSOURCE(SRV1A)', '**free\n// prod copy', undefined, 'info'],
-				['SRV1B', 'DEVTEST/DBSOURCE(SRV1B)', undefined, 'Compiled from DEVTEST/DBSOURCE(SRV1B), which no longer exists, and no copy of that member was found in another library.', undefined],
-				['SRV1C', 'PROD/DBSOURCE(SRV1C)', '**free\n// still where it was compiled', undefined, undefined]
+				['SRV1A', 'PROD/SQLSRC(SRV1A)', '**free\n// prod copy', undefined, 'info'],
+				['SRV1B', 'TESTLIB/SQLSRC(SRV1B)', undefined, 'Compiled from TESTLIB/SQLSRC(SRV1B), which no longer exists, and no copy of that member was found in another library.', undefined],
+				['SRV1C', 'PROD/SQLSRC(SRV1C)', '**free\n// still where it was compiled', undefined, undefined]
 			]);
-			assert.match(sources[0].notice?.text ?? '', /Showing PROD\/DBSOURCE\(SRV1A\)\. Also found: PRODLIB\/DBSOURCE\(SRV1A\)\.$/);
+			assert.match(sources[0].notice?.text ?? '', /Showing PROD\/SQLSRC\(SRV1A\)\. Also found: PRODLIB\/SQLSRC\(SRV1A\)\.$/);
 
 			// One existence check for all three, one library search, one member search - and no read of a
 			// member that isn't there, which would fail and land in the History tab.
 			assert.strictEqual(recorder.matching(/syspartitionstat/).length, 2);
 			assert.strictEqual(recorder.matching(/object_statistics\('\*allusr'/).length, 1);
-			assert.strictEqual(recorder.matching(/^create alias qtemp\..* for "devtest"/).length, 0);
+			assert.strictEqual(recorder.matching(/^create alias qtemp\..* for "testlib"/).length, 0);
 		});
 
 		test('warns when the copy shown was changed after the module was compiled', async () => {
@@ -147,7 +147,7 @@ suite('ProgramQueries against the fake driver', () => {
 
 			assert.strictEqual(source.text, '**free\n// git copy');
 			assert.strictEqual(source.notice?.severity, 'warning');
-			assert.match(source.notice?.text ?? '', /Showing PRODLIB\/DBSOURCE\(SRV1A\)\. Changed since compile\. Also found: PROD\/DBSOURCE\(SRV1A\)\.$/);
+			assert.match(source.notice?.text ?? '', /Showing PRODLIB\/SQLSRC\(SRV1A\)\. Changed since compile\. Also found: PROD\/SQLSRC\(SRV1A\)\.$/);
 		});
 	});
 

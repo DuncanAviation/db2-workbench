@@ -11,9 +11,9 @@ const LIBRARY_LIST = [
 	{ name: 'QSYS2', type: 'SYSTEM' },
 	{ name: 'MYCUR', type: 'CURRENT' },
 	{ name: 'QTEMP', type: 'USER' },
-	{ name: 'APPL', type: 'USER' },
+	{ name: 'PRODLIB', type: 'USER' },
 	{ name: 'SALES', type: 'USER' },
-	{ name: 'ARCHV', type: 'USER' }
+	{ name: 'ARCHLIB', type: 'USER' }
 ];
 
 function renderLive(overrides: Partial<Parameters<typeof EditSchemaListDialog>[0] & { mode: 'live' }> = {}) {
@@ -37,12 +37,12 @@ describe('EditSchemaListDialog in live mode', () => {
 	it('lists the library list in order, labelling each entry with its type', () => {
 		renderLive();
 
-		expect(rowNames()).toEqual(['QSYS', 'QSYS2', 'MYCUR', 'QTEMP', 'APPL', 'SALES', 'ARCHV']);
+		expect(rowNames()).toEqual(['QSYS', 'QSYS2', 'MYCUR', 'QTEMP', 'PRODLIB', 'SALES', 'ARCHLIB']);
 
 		let current = within(screen.getByRole('listitem', { name: 'MYCUR' }));
 		expect(current.getByText('Current')).toBeTruthy();
 		expect(within(screen.getByRole('listitem', { name: 'QSYS' })).getByText('System')).toBeTruthy();
-		expect(within(screen.getByRole('listitem', { name: 'APPL' })).getByText('User')).toBeTruthy();
+		expect(within(screen.getByRole('listitem', { name: 'PRODLIB' })).getByText('User')).toBeTruthy();
 	});
 
 	it('offers no move or remove on system, current and QTEMP entries', () => {
@@ -58,28 +58,28 @@ describe('EditSchemaListDialog in live mode', () => {
 	it('reorders user entries past nothing fixed, and posts the ordered user portion', async () => {
 		let { onSave } = renderLive();
 
-		// APPL is the first movable entry - QTEMP above it stays put - and ARCHV the last.
-		expect(screen.getByRole('button', { name: 'Move APPL up' }).hasAttribute('disabled')).toBe(true);
-		expect(screen.getByRole('button', { name: 'Move ARCHV down' }).hasAttribute('disabled')).toBe(true);
+		// PRODLIB is the first movable entry - QTEMP above it stays put - and ARCHLIB the last.
+		expect(screen.getByRole('button', { name: 'Move PRODLIB up' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.getByRole('button', { name: 'Move ARCHLIB down' }).hasAttribute('disabled')).toBe(true);
 
 		await userEvent.click(screen.getByRole('button', { name: 'Move SALES up' }));
-		await userEvent.click(screen.getByRole('button', { name: 'Move APPL down' }));
+		await userEvent.click(screen.getByRole('button', { name: 'Move PRODLIB down' }));
 
-		expect(rowNames()).toEqual(['QSYS', 'QSYS2', 'MYCUR', 'QTEMP', 'SALES', 'ARCHV', 'APPL']);
+		expect(rowNames()).toEqual(['QSYS', 'QSYS2', 'MYCUR', 'QTEMP', 'SALES', 'ARCHLIB', 'PRODLIB']);
 
 		await userEvent.click(screen.getByRole('button', { name: 'OK' }));
 
 		// Only the user portion, QTEMP where it sits; the system and current entries are never sent.
-		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'SALES', 'ARCHV', 'APPL']);
+		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'SALES', 'ARCHLIB', 'PRODLIB']);
 	});
 
 	it('removes a user entry', async () => {
 		let { onSave } = renderLive();
 
-		await userEvent.click(screen.getByRole('button', { name: 'Remove APPL' }));
+		await userEvent.click(screen.getByRole('button', { name: 'Remove PRODLIB' }));
 		await userEvent.click(screen.getByRole('button', { name: 'OK' }));
 
-		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'SALES', 'ARCHV']);
+		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'SALES', 'ARCHLIB']);
 	});
 
 	it('adds a library last, upper-cased, by button or Enter, once the host says it exists', async () => {
@@ -97,7 +97,7 @@ describe('EditSchemaListDialog in live mode', () => {
 		expect((input as HTMLInputElement).value).toBe('');
 
 		await userEvent.click(screen.getByRole('button', { name: 'OK' }));
-		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'APPL', 'SALES', 'ARCHV', 'LLTESTA', 'LLTESTB']);
+		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'PRODLIB', 'SALES', 'ARCHLIB', 'LLTESTA', 'LLTESTB']);
 	});
 
 	it('refuses a library the system doesn\'t have, leaving it out of the list', async () => {
@@ -116,7 +116,7 @@ describe('EditSchemaListDialog in live mode', () => {
 		expect(screen.queryByText('Library NOSUCH was not found')).toBeNull();
 
 		await userEvent.click(screen.getByRole('button', { name: 'OK' }));
-		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'APPL', 'SALES', 'ARCHV']);
+		expect(onSave).toHaveBeenCalledWith(['QTEMP', 'PRODLIB', 'SALES', 'ARCHLIB']);
 	});
 
 	it('rejects a name that isn\'t a system name, or is already on the list, without asking the host', async () => {
@@ -133,7 +133,7 @@ describe('EditSchemaListDialog in live mode', () => {
 		expect(screen.getByRole('button', { name: 'Add' }).hasAttribute('disabled')).toBe(true);
 
 		await userEvent.type(input, '{Enter}');
-		expect(rowNames()).toEqual(['QSYS', 'QSYS2', 'MYCUR', 'QTEMP', 'APPL', 'SALES', 'ARCHV']);
+		expect(rowNames()).toEqual(['QSYS', 'QSYS2', 'MYCUR', 'QTEMP', 'PRODLIB', 'SALES', 'ARCHLIB']);
 		expect(checkLibrary).not.toHaveBeenCalled();
 	});
 
@@ -147,7 +147,7 @@ describe('EditSchemaListDialog in live mode', () => {
 		});
 
 		expect(screen.getByRole('button', { name: 'Applying...' }).hasAttribute('disabled')).toBe(true);
-		expect(screen.getByRole('button', { name: 'Remove APPL' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.getByRole('button', { name: 'Remove PRODLIB' }).hasAttribute('disabled')).toBe(true);
 		expect(screen.getByText('The library list was not changed: SQL0443 - CPF2110 Library NOSUCH not found.')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Copy error' })).toBeTruthy();
 	});

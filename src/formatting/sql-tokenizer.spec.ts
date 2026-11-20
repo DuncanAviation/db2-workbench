@@ -50,7 +50,7 @@ describe('SqlTokenizer', () => {
 	});
 
 	it('losslessly reconstructs the original text, including a DB2 identifier with "#"', () => {
-		let sql = `SELECT id FROM my#lib.app#hist WHERE id = 1 -- note\n`;
+		let sql = `SELECT id FROM my#lib.ord#hist WHERE id = 1 -- note\n`;
 		let tokens = SqlTokenizer.tokenize(sql);
 		expect(tokens.map(token => token.text).join('')).to.equal(sql);
 	});
