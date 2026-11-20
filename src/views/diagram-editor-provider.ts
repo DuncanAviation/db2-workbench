@@ -15,6 +15,7 @@ import { ConnectionConfig } from '../models/connection-config.js';
 import { SystemTable } from '../models/system-table.js';
 import { TableSchema } from '../models/table-schema.js';
 import { SCHEMA_FORMATS } from '../schema-conversion/schema-formats.js';
+import { ResolvedForeignKey as ResolvedSchemaForeignKey } from '../schema-conversion/schema-format-converter.js';
 import { resolveTable } from '../schema-conversion/table-resolver.js';
 import { sqlImportTableKey } from '../schema-conversion/sql-import-converter.js';
 import { SchemaTrees } from '../schema-trees.js';
@@ -27,10 +28,11 @@ import { ExportWriteUtils } from '../utils/export-write-utils.js';
 import { SchemaImportErrorUtils } from '../utils/schema-import-error-utils.js';
 import { findImportsToDelete, findImportsToUnlink } from '../schema-conversion/import-groups.js';
 import { WebviewHtmlUtils } from '../utils/webview-html-utils.js';
-import { ApplyDiagramImportsMessage, DiagramColumnLabelsMessage, DiagramConnectAbortedMessage, DiagramConnectionChangedMessage, DiagramExportFormat, DiagramImportRemovalOrphanMessage, DiagramImportsMessage, DiagramImportSchemaErrorMessage, DiagramImportSchemaSummaryMessage, DiagramInitialState, DiagramMissingTargetsMessage, DiagramModel, DiagramModelUpdatedMessage, DiagramOutboundMessage, DiagramSchemaTablesMessage, DiagramSqlImportConnectionsMessage, DiagramSqlImportLoadedMessage, DiagramSqlImportResultMessage, DiagramSqlImportSavedMessage, SaveDiagramSqlImportMessage, DiagramSqlImportRunResultMessage, DiagramSyncOrphansMessage, DiagramSyncSummaryMessage, DiagramTable, DiagramTreeTable, ImportDiagramSqlSchemaMessage } from '../webview-messages/diagram-messages.js';
+import { ApplyDiagramImportsMessage, DiagramColumnLabelsMessage, DiagramConnectAbortedMessage, DiagramConnectionChangedMessage, DiagramExportFormat, DiagramImportRemovalOrphanMessage, DiagramImportsMessage, DiagramImportSchemaErrorMessage, DiagramImportSchemaSummaryMessage, DiagramInitialState, DiagramTableKeysMessage, DiagramModel, DiagramModelUpdatedMessage, DiagramOutboundMessage, DiagramSchemaTablesMessage, DiagramSqlImportConnectionsMessage, DiagramSqlImportLoadedMessage, DiagramSqlImportResultMessage, DiagramSqlImportSavedMessage, SaveDiagramSqlImportMessage, DiagramSqlImportRunResultMessage, DiagramSyncOrphansMessage, DiagramSyncSummaryMessage, DiagramTable, DiagramTreeTable, ImportDiagramSqlSchemaMessage } from '../webview-messages/diagram-messages.js';
 import { SchemaImportEntry, SqlImportStatementInput, TreeTableEntry } from '../webview-messages/schemas-messages.js';
 
-import { findMissingTargets } from '../diagram/diagram-missing-targets.js';
+import { buildTableKeys, ReferencingKeyColumn } from '../diagram/diagram-table-keys.js';
+import { findColumnIdentity } from '../diagram/diagram-column-labels.js';
 import { AlertUtils } from '../utils/alert-utils.js';
 
 // vscode.CustomEditorProvider<DiagramDocument> registered for *.db2diagram (see package.json's
@@ -99,7 +101,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 	// set of tables on the diagram. Recomputing needs a (cached) foreign-key lookup per table, and the
 	// content-changed event that triggers it also fires on every single drag, so this skips the work
 	// whenever neither input actually moved. A WeakMap so a disposed panel's entry goes with it.
-	private missingTargetInputsByPanel = new WeakMap<vscode.WebviewPanel, string>();
+	private tableKeyInputsByPanel = new WeakMap<vscode.WebviewPanel, string>();
 
 	// "Sync with Database" holds its resolve here between finding orphans (tables that resolve against
 	// NEITHER the database NOR any current import) and the user's Keep/Remove confirmation reply - see
@@ -123,7 +125,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 	// Serializes connect/reconnect attempts per document rather than an ad hoc busy flag (the rxjs
 	// Subject + concatMap pattern used elsewhere, e.g. WorkbenchViewProvider.renderSubject). This
 	// matters because applyConnection() posts connectionChanged - which clears the webview's spinner
-	// and re-enables its menu - BEFORE awaiting postSchemaTables()/postMissingTargets(), so those keep
+	// and re-enables its menu - BEFORE awaiting postSchemaTables()/postTableKeys(), so those keep
 	// running worker-connection queries for a few seconds after "Reconnect" looks clickable again. A
 	// second connectToDatabase firing in that window used to close the very connection those queries
 	// were still using mid-flight; the ODBC driver has no safe way to cancel an in-flight query (see the
@@ -217,12 +219,12 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 			panel.webview.postMessage(<DiagramModelUpdatedMessage>{ command: 'modelUpdated', model: document.model });
 			// Which foreign keys are unresolved is a function of what's on the diagram, so it has to be
 			// rechecked after any edit that added or removed a table - including an undo/redo, which
-			// arrives here the same as a fresh edit. Guarded inside postMissingTargets, so the drags that
+			// arrives here the same as a fresh edit. Guarded inside postTableKeys, so the drags that
 			// also land here cost nothing. Not awaited: this handler is a plain event listener, and the
 			// model update above must reach the webview immediately rather than behind a catalog lookup.
 			TryUtils.forgetPromise({
-				context: `diagram-editor-provider postMissingTargets()`,
-				promise: () => this.postMissingTargets(panel, document),
+				context: `diagram-editor-provider postTableKeys()`,
+				promise: () => this.postTableKeys(panel, document),
 				onError: error => AlertUtils.onError(error)
 			});
 		});
@@ -494,7 +496,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 
 				if(rejoined == null) {
 					panel.webview.postMessage(<DiagramConnectionChangedMessage>{ command: 'connectionChanged' });
-					await this.postMissingTargets(panel, document);
+					await this.postTableKeys(panel, document);
 					return;
 				}
 
@@ -516,7 +518,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 				// half-finished state after a failed connection. The missing-FK markers are cleared too (they'd
 				// otherwise keep offering to add tables through a connection that no longer exists).
 				panel.webview.postMessage(<DiagramConnectionChangedMessage>{ command: 'connectionChanged' });
-				await this.postMissingTargets(panel, document);
+				await this.postTableKeys(panel, document);
 				return;
 			}
 
@@ -536,7 +538,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 		panel.webview.postMessage(<DiagramConnectionChangedMessage>{ command: 'connectionChanged', connectionName: config.name });
 
 		await this.postSchemaTables(panel, document, config.id);
-		await this.postMissingTargets(panel, document);
+		await this.postTableKeys(panel, document);
 		await this.refreshImportedData(document);
 	}
 
@@ -578,7 +580,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 	}
 
 	// Everything the diagram needs to know about a set of tables, resolved once and shared by the two
-	// callers that ask different questions of the same data: postMissingTargets ("which of these foreign
+	// callers that ask different questions of the same data: postTableKeys ("which of these foreign
 	// keys point nowhere?") and handleAddTables ("which point at what I'm adding, and what are those
 	// columns really called?").
 	//
@@ -616,7 +618,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 		}
 
 		// This runs across several awaited round trips (buildTreeState, then up to three batched
-		// queries), and every caller (postMissingTargets, handleAddTables, and the tree-change refresh in
+		// queries), and every caller (postTableKeys, handleAddTables, and the tree-change refresh in
 		// subscribeToTreeChanges) can still be mid-flight after documentUri detached from configId - closed,
 		// or reconnected elsewhere - since none of that cancels an already-running call. Re-checked before
 		// each round trip rather than once at entry, so a detach partway through stops the rest instead of
@@ -686,7 +688,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 			let imported = importedByTable.get(sqlImportTableKey(target.schema, target.table)) ?? [];
 
 			// Neither a live table nor an import - nothing to resolve. The caller decides what that means:
-			// handleAddTables reports it, postMissingTargets just has one fewer table to check.
+			// handleAddTables reports it, postTableKeys just has one fewer table to check.
 			if(!connected && imported.length === 0) {
 				callbacks.onMissing?.(target);
 				continue;
@@ -731,10 +733,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 		});
 	}
 
-	// The foreign keys of the tables on the diagram that point at tables which AREN'T - the set
-	// addTables deliberately skips rather than drawing dangling edges for. Each becomes a marker in the
-	// webview offering to bring that table in.
-	private async postMissingTargets(panel: vscode.WebviewPanel, document: DiagramDocument): Promise<void> {
+	// Every foreign key touching each table on the diagram, in both directions (see buildTableKeys). The
+	// webview draws an "add related tables" marker wherever one of them points at a table that isn't on
+	// the canvas - the keys addTables deliberately skips rather than drawing dangling edges for.
+	private async postTableKeys(panel: vscode.WebviewPanel, document: DiagramDocument): Promise<void> {
 		let config = this.connectionsByDocumentUri.get(document.uri.toString());
 		// Deliberately part of the guard key: connecting has to recompute even though the diagram's own
 		// tables didn't change, and disconnecting has to push an empty list to clear the markers - there
@@ -743,33 +745,39 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 		let importCount = config ? this.extension.schemaTrees.getImportedTables(config.id).length : 0;
 		let inputs = `${config?.id ?? ''}|${importCount}|${document.model.tables.map(table => table.id).sort().join(',')}`;
 
-		if(this.missingTargetInputsByPanel.get(panel) === inputs) {
+		if(this.tableKeyInputsByPanel.get(panel) === inputs) {
 			return;
 		}
 
-		this.missingTargetInputsByPanel.set(panel, inputs);
+		this.tableKeyInputsByPanel.set(panel, inputs);
 
 		if(!config) {
-			panel.webview.postMessage(<DiagramMissingTargetsMessage>{ command: 'missingTargetsLoaded', targets: [] });
+			panel.webview.postMessage(<DiagramTableKeysMessage>{ command: 'tableKeysLoaded', tables: [] });
 			return;
 		}
 
 		let key = DiagramUtils.buildKey(config.id);
+		let targets = DiagramEditorProvider.toTargets(document.model.tables);
 		let tables: Map<string, ResolvedTable>;
+		let referencing: Map<string, ResolvedSchemaForeignKey[]>;
 
 		try {
-			tables = await this.loadTables(document.uri.toString(), key, config.id, DiagramEditorProvider.toTargets(document.model.tables));
+			tables = await this.loadTables(document.uri.toString(), key, config.id, targets);
+			// One batched lookup for the whole canvas, cached per table, so a refresh after an edit that
+			// didn't change the table set never gets here (the guard above) and one that did only queries
+			// the tables new to it.
+			referencing = await this.extension.schemaTrees.loadReferencingForeignKeys({key: key, configId: config.id}, targets);
 		} catch(error) {
 			// A failed lookup shouldn't take the diagram down - the markers are an extra affordance, not
 			// something the diagram needs in order to render. Clearing the guard so a later edit retries.
-			this.missingTargetInputsByPanel.delete(panel);
+			this.tableKeyInputsByPanel.delete(panel);
 			AlertUtils.onError(error);
 			return;
 		}
 
-		panel.webview.postMessage(<DiagramMissingTargetsMessage>{
-			command: 'missingTargetsLoaded',
-			targets: findMissingTargets(document.model, DiagramEditorProvider.toForeignKeysByTableId(tables))
+		panel.webview.postMessage(<DiagramTableKeysMessage>{
+			command: 'tableKeysLoaded',
+			tables: buildTableKeys(document.model, DiagramEditorProvider.toForeignKeysByTableId(tables), DiagramEditorProvider.toReferencingByTableId(document.model.tables, referencing))
 		});
 	}
 
@@ -821,7 +829,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 				if(adding.length > 0) {
 					// Read BEFORE the edit, so it's the set of tables that were already here - which is exactly
 					// the side whose keys point AT what's being added (the missing-FK marker flow's whole
-					// premise). Cached, and postMissingTargets has usually just warmed them.
+					// premise). Cached, and postTableKeys has usually just warmed them.
 					let existing = await this.loadTables(documentUri, key, config.id, DiagramEditorProvider.toTargets(document.model.tables));
 
 					// Neither end's column names need reconciling here: every column carries all three of its
@@ -845,7 +853,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 	}
 
 	// "Sync with Database" from the diagram's own menu - resolves every table already on the diagram
-	// against current DB2+imports, reusing the same loadTables pipeline postMissingTargets/handleAddTables
+	// against current DB2+imports, reusing the same loadTables pipeline postTableKeys/handleAddTables
 	// already use, but WITHOUT refreshImportedData's getImportedTables().length > 0 guard: an explicit
 	// Sync always runs, regardless of whether anything's been (re-)imported this session. Needs a
 	// connection to resolve anything against - prompts for one first if disconnected, same convention
@@ -967,6 +975,29 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 	// own comment on why the two are nonetheless kept as separate fields).
 	private static toTargets(tables: DiagramTable[]): { schema: string; table: string }[] {
 		return tables.map(table => ({ schema: table.schemaId, table: table.name }));
+	}
+
+	// Keyed by each diagram table's id rather than the lookup's sqlImportTableKey, which is what
+	// buildTableKeys works in. The column a key lands on is resolved to the diagram column's identity, the
+	// same as a key's own column is (diagram-resolved-table.ts), so the webview can find its row.
+	private static toReferencingByTableId(tables: DiagramTable[], referencing: Map<string, ResolvedSchemaForeignKey[]>): Map<string, ReferencingKeyColumn[]> {
+		return new Map(tables.map(table => [
+			table.id,
+			(referencing.get(sqlImportTableKey(table.schemaId, table.name)) ?? [])
+				.filter(foreignKey => StringUtils.isNotBlank(foreignKey.schema) && StringUtils.isNotBlank(foreignKey.tableName))
+				.map(foreignKey => {
+					let referencedName = foreignKey.referencedColumnName ?? foreignKey.referencedSystemColumnName;
+					return {
+						schema: <string>foreignKey.schema,
+						table: <string>foreignKey.tableName,
+						constraintName: foreignKey.constraintName,
+						isNew: foreignKey.isNew,
+						column: findColumnIdentity(table.columns, foreignKey.referencedSystemColumnName) ?? findColumnIdentity(table.columns, referencedName) ?? referencedName,
+						childShortName: foreignKey.systemColumnName,
+						childLongName: foreignKey.columnName
+					};
+				})
+		]));
 	}
 
 	private static toForeignKeysByTableId(tables: ReadonlyMap<string, ResolvedTable>): Map<string, ResolvedForeignKey[]> {
@@ -1097,7 +1128,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<Diagra
 				context: 'diagram-editor-provider onSchemaTreeChanged',
 				promise: async () => {
 					await this.postSchemaTables(panel, document, config.id);
-					await this.postMissingTargets(panel, document);
+					await this.postTableKeys(panel, document);
 					await this.refreshImportedData(document);
 				},
 				onError: error => AlertUtils.onError(error)

@@ -310,6 +310,122 @@ export function resolveForeignKeys(connected: SystemForeignKey[] | undefined, im
 	return buildNewForeignKeyRows(imported, new Set(), resolveColumnName);
 }
 
+/**
+ * The reverse of resolveForeignKeys: the foreign keys in OTHER tables (children) that reference
+ * `target`, reconciled between DB2 (`connected`) and imports the same way - connected rows win,
+ * imported ones they don't already cover are added with `isNew`. Every row names its child in
+ * schema/tableName, since several children can reference one table.
+ *
+ * Unlike the forward direction, both sides' columns can be resolved: the child's through that child's
+ * own resolver (its connected columns plus its own imported entries), the referenced side's through
+ * the target's - so a key DB2 reports by short names and an import names by long ones still match.
+ */
+export function resolveReferencingForeignKeys(options: ReferencingForeignKeyInputs): ResolvedForeignKey[] {
+	let resolveTargetColumn = buildColumnNameResolver(options.targetColumns, options.targetImported);
+	let childResolvers = new Map<string, (name: string) => string>();
+
+	let resolveChildColumn = (schema: string | undefined, table: string): (name: string) => string => {
+		let key = referencingChildKey(schema, table);
+		let resolver = childResolvers.get(key);
+
+		if(!resolver) {
+			resolver = buildColumnNameResolver(options.childColumns.get(key), options.childImported.get(key) ?? []);
+			childResolvers.set(key, resolver);
+		}
+
+		return resolver;
+	};
+
+	let signature = (schema: string | undefined, table: string, columns: string[], referencedColumns: string[]): string => {
+		let resolveChild = resolveChildColumn(schema, table);
+		return [
+			referencingChildKey(schema, table),
+			columns.map(resolveChild).join(','),
+			referencedColumns.map(resolveTargetColumn).join(',')
+		].join('|');
+	};
+
+	let connected = options.connected ?? [];
+	let existingSignatures = new Set(
+		groupByChildConstraint(connected).map(group => signature(
+			group[0].schema,
+			group[0].tableName,
+			group.map(row => row.systemColumnName),
+			group.map(row => row.referencedSystemColumnName)
+		))
+	);
+
+	let rows: ResolvedForeignKey[] = connected.map(foreignKey => ({...foreignKey, isNew: false}));
+	let nextSyntheticId = 0;
+
+	for(let child of options.importedChildren) {
+		for(let foreignKey of child.foreignKeys) {
+			let keySignature = signature(child.schema, child.name, foreignKey.columns, foreignKey.referencedColumns);
+
+			if(existingSignatures.has(keySignature)) {
+				continue;
+			}
+
+			existingSignatures.add(keySignature);
+
+			// Synthetic names only need to keep a composite key's columns together, the same as
+			// buildNewForeignKeyRows; grouping is per child, so a name repeated across children is fine.
+			let constraintName = foreignKey.name ?? `imported-fk-${nextSyntheticId++}`;
+
+			rows.push(...foreignKey.columns.map((columnName, index) => ({
+				schema: child.schema,
+				tableName: child.name,
+				constraintName,
+				systemColumnName: columnName,
+				ordinalPosition: index + 1,
+				updateRule: foreignKey.updateRule,
+				deleteRule: foreignKey.deleteRule,
+				referencedSchema: options.target.schema,
+				referencedTable: options.target.table,
+				referencedSystemColumnName: foreignKey.referencedColumns[index],
+				isNew: true
+			})));
+		}
+	}
+
+	return rows;
+}
+
+export interface ReferencingForeignKeyInputs {
+	/** The referenced table, as the tree names it. */
+	target: {schema: string; table: string};
+	/** DB2's referencing keys for the target, or undefined when the target isn't a real DB2 table. */
+	connected: SystemForeignKey[] | undefined;
+	/** Imported entries for the children, with foreignKeys already narrowed to the ones referencing the
+	 * target and schema already set to the child's effective schema - the source of imported rows. */
+	importedChildren: ImportedTableSchema[];
+	/** DB2's columns for each child that exists there, keyed by referencingChildKey. */
+	childColumns: Map<string, SystemColumn[]>;
+	/** Each child's whole imported contribution (all its columns), keyed by referencingChildKey - only
+	 * used to resolve the child's column names, never as a source of rows. */
+	childImported: Map<string, ImportedTableSchema[]>;
+	targetColumns?: SystemColumn[];
+	targetImported: ImportedTableSchema[];
+}
+
+/** How resolveReferencingForeignKeys keys a child table (childColumns' keys). */
+export function referencingChildKey(schema: string | undefined, table: string): string {
+	return `${(schema ?? '').toUpperCase()}.${table.toUpperCase()}`;
+}
+
+// groupByConstraint keys on the constraint name alone, which is only safe within one table: two
+// children can each declare a constraint of the same name. Referencing rows span children.
+function groupByChildConstraint(rows: SystemForeignKey[]): SystemForeignKey[][] {
+	let byChild = new Map<string, SystemForeignKey[]>();
+
+	for(let row of rows) {
+		let key = referencingChildKey(row.schema, row.tableName);
+		byChild.set(key, [...(byChild.get(key) ?? []), row]);
+	}
+
+	return Array.from(byChild.values()).flatMap(groupByConstraint);
+}
+
 // Every constraint/index comparison in this file names its columns in whichever form its source had:
 // SYSPARTITIONINDEXSTAT.COLUMN_NAMES reports short or long names depending on how the index was created
 // (not consistent across shops, or even across indexes on one table), the constraint catalogs report

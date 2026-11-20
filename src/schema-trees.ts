@@ -5,9 +5,10 @@ import { Extension } from './extension.js';
 import { GlobalStates } from './global-states.js';
 import { ConnectionInfo } from './interfaces/connection-info.js';
 import { SystemTable } from './models/system-table.js';
-import { ImportedTableSchema, ImportProvenance, PASTED_SOURCE_LABEL, SchemaFormatId } from './schema-conversion/schema-format-converter.js';
+import { ImportedTableSchema, ImportProvenance, PASTED_SOURCE_LABEL, ResolvedForeignKey, SchemaFormatId } from './schema-conversion/schema-format-converter.js';
 import { groupImports, importedTableKey, importEntryKey, importEntryKeyOf } from './schema-conversion/import-groups.js';
 import { mergeSqlImportFragments } from './schema-conversion/sql-import-fragments.js';
+import { referencingChildKey, resolveReferencingForeignKeys } from './schema-conversion/table-resolver.js';
 import { findSchemasToFetch } from './schema-conversion/schema-fetch-targets.js';
 import { sqlImportTableKey } from './schema-conversion/sql-import-converter.js';
 import { ArrayUtils } from './utils/array-utils.js';
@@ -174,6 +175,85 @@ export class SchemaTrees {
 	async loadImportedTablesForTable(options: SchemaTrees.Options, schema: string, table: string): Promise<ImportedTableSchema[]> {
 		let byTableKey = await this.loadImportedTablesFor(options, [{schema: schema, table: table}]);
 		return byTableKey.get(sqlImportTableKey(schema, table)) ?? [];
+	}
+
+	/**
+	 * The foreign keys in other tables that reference each target ("referenced by"), DB2's and every
+	 * enabled import's, reconciled by resolveReferencingForeignKeys. Keyed by the target's
+	 * sqlImportTableKey. Batched end to end - one catalog statement for every target, one per import
+	 * at most - since the diagram asks this for its whole canvas on every refresh.
+	 *
+	 * An imported key with no referenced schema points into its own table's schema, the same rule the
+	 * diagram draws edges by (diagram-resolved-table.ts); a schema-less imported table is its own
+	 * NO_SCHEMA_BUCKET, as everywhere in the tree.
+	 */
+	async loadReferencingForeignKeys(options: SchemaTrees.Options, targets: SqlImportTableRef[]): Promise<Map<string, ResolvedForeignKey[]>> {
+		let byTargetKey = new Map<string, ResolvedForeignKey[]>();
+
+		if(targets.length === 0) {
+			return byTargetKey;
+		}
+
+		let cacheOptions = {key: options.key, configId: options.configId};
+		let databaseTargets = targets.filter(target => target.schema !== NO_SCHEMA_BUCKET).map(target => ({schema: target.schema, table: target.table}));
+		let connected = databaseTargets.length > 0 ? await this.extension.memoryCache.getReferencingForeignKeys({...cacheOptions, tables: databaseTargets}) : [];
+		let sqlFragments = await this.extension.sqlSchemaImports.getReferencingFragments(cacheOptions, targets);
+		let disabled = this.getDisabledKeys(options.configId);
+		let fileTables = this.getImportedTables(options.configId);
+
+		let importedChildrenByTarget = new Map<string, ImportedTableSchema[]>();
+		let children = new Map<string, SqlImportTableRef>();
+
+		for(let target of targets) {
+			let targetKey = sqlImportTableKey(target.schema, target.table);
+			let importedChildren: ImportedTableSchema[] = [];
+
+			for(let table of fileTables) {
+				let childSchema = table.schema ?? NO_SCHEMA_BUCKET;
+				let foreignKeys = table.foreignKeys.filter(foreignKey =>
+					StringUtils.equalsIgnoreCase(StringUtils.isNotBlank(foreignKey.referencedSchema) ? foreignKey.referencedSchema : childSchema, target.schema)
+					&& StringUtils.equalsIgnoreCase(foreignKey.referencedTable, target.table));
+
+				if(foreignKeys.length > 0) {
+					importedChildren.push({...table, schema: childSchema, foreignKeys: foreignKeys});
+				}
+			}
+
+			for(let fragment of sqlFragments.get(targetKey) ?? []) {
+				if(!disabled.has(importEntryKey(fragment.importId, fragment.schema, fragment.table))) {
+					importedChildren.push(...mergeSqlImportFragments([], [fragment]));
+				}
+			}
+
+			importedChildrenByTarget.set(targetKey, importedChildren);
+			importedChildren.forEach(child => children.set(referencingChildKey(child.schema, child.name), {schema: <string>child.schema, table: child.name}));
+		}
+
+		connected.forEach(foreignKey => children.set(referencingChildKey(foreignKey.schema, foreignKey.tableName), {schema: foreignKey.schema, table: foreignKey.tableName}));
+
+		// Only for resolving names - each child's and each target's columns, DB2's and imported. Usually
+		// already cached: the target's tabs and the diagram's tables have loaded them.
+		let childRefs = Array.from(children.values());
+		let databaseChildren = childRefs.filter(child => child.schema !== NO_SCHEMA_BUCKET);
+		let columns = await this.extension.memoryCache.getColumns({...cacheOptions, tables: [...databaseTargets, ...databaseChildren]});
+		let columnsByTable = ArrayUtils.toMapOfArrays(columns, column => referencingChildKey(column.schema, column.tableName), column => column);
+		let importedByTable = await this.loadImportedTablesFor(options, [...targets, ...childRefs]);
+
+		for(let target of targets) {
+			let targetKey = sqlImportTableKey(target.schema, target.table);
+
+			byTargetKey.set(targetKey, resolveReferencingForeignKeys({
+				target: target,
+				connected: connected.filter(foreignKey => StringUtils.equalsIgnoreCase(foreignKey.referencedSchema, target.schema) && StringUtils.equalsIgnoreCase(foreignKey.referencedTable, target.table)),
+				importedChildren: importedChildrenByTarget.get(targetKey) ?? [],
+				childColumns: columnsByTable,
+				childImported: importedByTable,
+				targetColumns: columnsByTable.get(targetKey),
+				targetImported: importedByTable.get(targetKey) ?? []
+			}));
+		}
+
+		return byTargetKey;
 	}
 
 	// `overrides` is accepted (rather than always read from GlobalStates here) because a caller

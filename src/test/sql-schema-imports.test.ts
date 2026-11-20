@@ -380,6 +380,95 @@ suite('SqlSchemaImports against the fake driver', () => {
 		assert.deepStrictEqual(recorder.matching(COLUMNS_PATTERN), [], 'a cached section must not be queried again, including for the table that had nothing');
 	});
 
+	// Relationships load per child, so finding a table's children ("referenced by") loads a saved import's
+	// whole Relationships section once instead. After that both directions are answered from the cache.
+	const WORKORDER_TO_CUSTOMER = { CHILD_SCHEMA: 'SITE', CHILD_TABLE: 'WORKORDER', CHILD_COLUMN: 'CUSTNO', PARENT_SCHEMA: 'SALES', PARENT_TABLE: 'CUSTOMER', PARENT_COLUMN: 'CUSTNO' };
+	const ORDERS_TO_WORKORDER = { CHILD_SCHEMA: 'SALES', CHILD_TABLE: 'ORDERS', CHILD_COLUMN: 'WONUM', PARENT_SCHEMA: 'SITE', PARENT_TABLE: 'WORKORDER', PARENT_COLUMN: 'WONUM' };
+
+	test('a reverse lookup loads a saved import\'s whole Relationships section once, then answers both directions from cache', async () => {
+		let key = open('test://import-referencing');
+		await saveAndLink(savedImport('referencing-import', { relationships: { sql: RELATIONSHIPS_SQL, mapping: { ...RELATIONSHIPS_MAPPING } } }));
+
+		let recorder = TestSupport.recordStatements({
+			database: TestSupport.DATABASE,
+			responses: [
+				{ match: TABLES_PATTERN, rows: TABLE_ROWS },
+				{ match: RELATIONSHIPS_PATTERN, rows: [WORKORDER_TO_CUSTOMER, ORDERS_TO_WORKORDER] }
+			]
+		});
+
+		await extension.sqlSchemaImports.ensureLoaded({ key: key, configId: TestSupport.CONFIG_ID });
+		recorder.clear();
+
+		let referencing = await extension.sqlSchemaImports.getReferencingFragments({ key: key, configId: TestSupport.CONFIG_ID }, [{ schema: 'SALES', table: 'CUSTOMER' }]);
+
+		assert.strictEqual(recorder.matching(RELATIONSHIPS_PATTERN).length, 1);
+		assert.ok(!/where/.test(recorder.matching(RELATIONSHIPS_PATTERN)[0].normalized), 'the whole section is loaded, not one filtered on a child');
+		assert.deepStrictEqual(
+			referencing.get('SALES.CUSTOMER')?.map(fragment => [fragment.schema, fragment.table, fragment.foreignKeys.map(foreignKey => foreignKey.columns.join(','))]),
+			[['SITE', 'WORKORDER', ['CUSTNO']]],
+			'only the key pointing at CUSTOMER, not WORKORDER\'s other relationships'
+		);
+
+		recorder.clear();
+		let again = await extension.sqlSchemaImports.getReferencingFragments({ key: key, configId: TestSupport.CONFIG_ID }, [{ schema: 'SITE', table: 'WORKORDER' }]);
+		let forward = await extension.sqlSchemaImports.getTableFragments({ key: key, configId: TestSupport.CONFIG_ID }, [{ schema: 'SITE', table: 'WORKORDER' }, { schema: 'SALES', table: 'SHIPMENT' }]);
+
+		assert.deepStrictEqual(recorder.matching(RELATIONSHIPS_PATTERN), [], 'a seeded section answers every later lookup, in either direction');
+		assert.deepStrictEqual(again.get('SITE.WORKORDER')?.map(fragment => fragment.table), ['ORDERS']);
+		assert.deepStrictEqual(forward.get('SITE.WORKORDER')?.[0]?.foreignKeys.map(foreignKey => foreignKey.referencedTable), ['CUSTOMER']);
+	});
+
+	// A truncated section would cache every child it cut off as having no relationships, so it is left
+	// unseeded - the reverse lookup just misses this import, and the next one tries again.
+	test('a reverse lookup whose Relationships section exceeds the row limit is not seeded', async () => {
+		let key = open('test://import-referencing-truncated');
+		await saveAndLink(savedImport('referencing-truncated-import', { relationships: { sql: RELATIONSHIPS_SQL, mapping: { ...RELATIONSHIPS_MAPPING } } }));
+		await TestSupport.setSqlImportRowLimit(1);
+
+		let recorder = TestSupport.recordStatements({
+			database: TestSupport.DATABASE,
+			responses: [
+				{ match: TABLES_PATTERN, rows: TABLE_ROWS.slice(0, 1) },
+				{ match: RELATIONSHIPS_PATTERN, rows: [WORKORDER_TO_CUSTOMER, ORDERS_TO_WORKORDER] }
+			]
+		});
+
+		await extension.sqlSchemaImports.ensureLoaded({ key: key, configId: TestSupport.CONFIG_ID });
+		recorder.clear();
+
+		let targets = [{ schema: 'SALES', table: 'CUSTOMER' }];
+		let referencing = await extension.sqlSchemaImports.getReferencingFragments({ key: key, configId: TestSupport.CONFIG_ID }, targets);
+		await extension.sqlSchemaImports.getReferencingFragments({ key: key, configId: TestSupport.CONFIG_ID }, targets);
+
+		assert.deepStrictEqual(referencing.get('SALES.CUSTOMER'), undefined);
+		assert.strictEqual(recorder.matching(RELATIONSHIPS_PATTERN).length, 2, 'an unseeded section is tried again');
+	});
+
+	// End to end through SchemaTrees: DB2's own referencing key (ORDERS -> CUSTOMER, from the fixture)
+	// and the import's (WORKORDER -> CUSTOMER) side by side, the imported one flagged new.
+	test('referencing keys merge DB2\'s rows with a saved import\'s, the imported ones flagged new', async () => {
+		let key = open('test://import-referencing-merged');
+		await saveAndLink(savedImport('referencing-merged-import', { relationships: { sql: RELATIONSHIPS_SQL, mapping: { ...RELATIONSHIPS_MAPPING } } }));
+
+		TestSupport.recordStatements({
+			database: TestSupport.DATABASE,
+			responses: [
+				{ match: TABLES_PATTERN, rows: TABLE_ROWS },
+				{ match: RELATIONSHIPS_PATTERN, rows: [WORKORDER_TO_CUSTOMER] }
+			]
+		});
+
+		await extension.sqlSchemaImports.ensureLoaded({ key: key, configId: TestSupport.CONFIG_ID });
+
+		let referencing = await extension.schemaTrees.loadReferencingForeignKeys({ key: key, configId: TestSupport.CONFIG_ID }, [{ schema: 'SALES', table: 'CUSTOMER' }]);
+
+		assert.deepStrictEqual(
+			referencing.get('SALES.CUSTOMER')?.map(foreignKey => [foreignKey.schema, foreignKey.tableName, foreignKey.systemColumnName, foreignKey.isNew]),
+			[['SALES', 'ORDERS', 'CUSTNO', false], ['SITE', 'WORKORDER', 'CUSTNO', true]]
+		);
+	});
+
 	// The one outcome that is neither success nor failure: the session closed before this import's turn
 	// came round, so its statement never ran. DbConnections declines to reopen a closed key (see its
 	// closedKeys), which is deliberate - nothing would ever close the connection it reopened - and the

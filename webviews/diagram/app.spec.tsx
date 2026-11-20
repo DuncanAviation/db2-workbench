@@ -296,31 +296,148 @@ describe('diagram webview', () => {
 			expect(postedAfterReady()).toEqual([{ command: 'addTables', tables: [{ schema: 'SALES', table: 'INVOICE' }] }]);
 		});
 
-		it('a missing foreign-key target is added from its marker - directly for one, through a picker for several', async () => {
-			let user = userEvent.setup();
-			await renderDiagram();
-
+		// Every key touching ORDERS, CUSTOMER and PART, as the host sends them: ORDERS' own keys into CUSTOMER
+		// (on the diagram) and REGION (not), SHIPMENT's key into ORDERS, CUSTOMER referenced only by ORDERS,
+		// and PART referenced by a table in another schema.
+		function postTableKeys() {
 			postFromHost<DiagramInboundMessage>({
-				command: 'missingTargetsLoaded',
-				targets: [
-					{ tableId: 'SALES.ORDERS', columnName: 'CUSTOMER_NUMBER', targets: [{ targetSchema: 'SALES', targetTable: 'REGION', targetColumn: 'REGION_ID' }] },
+				command: 'tableKeysLoaded',
+				tables: [
 					{
-						tableId: 'PARTS.PART', columnName: 'BIN_ID',
-						targets: [{ targetSchema: 'PARTS', targetTable: 'BIN', targetColumn: 'BIN_ID' }, { targetSchema: 'PARTS', targetTable: 'LOCATION', targetColumn: 'BIN_ID' }]
+						tableId: 'SALES.ORDERS',
+						keys: [
+							{ direction: 'references', isNew: false, constraintName: 'ORDERS_REGION_FK', otherSchema: 'SALES', otherTable: 'REGION', otherTableId: 'SALES.REGION', columns: [{ column: 'CUSTOMER_NUMBER', otherShortName: 'REGCUS' }] },
+							{ direction: 'references', isNew: true, constraintName: 'ORDERS_SHIP_TO_FK', otherSchema: 'SALES', otherTable: 'CUSTOMER', otherTableId: 'SALES.CUSTOMER', columns: [{ column: 'ORDER_NUMBER', otherShortName: 'CUSNO' }] },
+							{ direction: 'references', isNew: true, constraintName: 'ORDERS_CUSTOMER_FK', otherSchema: 'SALES', otherTable: 'CUSTOMER', otherTableId: 'SALES.CUSTOMER', columns: [{ column: 'CUSTOMER_NUMBER', otherShortName: 'CUSNO', otherLongName: 'CUSTOMER_NUMBER' }] },
+							{ direction: 'referencedBy', isNew: false, constraintName: 'SHIPMENT_ORDERS_FK', otherSchema: 'SALES', otherTable: 'SHIPMENT', otherTableId: 'SALES.SHIPMENT', columns: [{ column: 'ORDER_NUMBER', otherShortName: 'SHORD', otherLongName: 'SHIPMENT_ORDER' }] }
+						]
+					},
+					{
+						tableId: 'SALES.CUSTOMER',
+						keys: [
+							{ direction: 'referencedBy', isNew: false, constraintName: 'ORDERS_CUSTOMER_FK', otherSchema: 'SALES', otherTable: 'ORDERS', otherTableId: 'SALES.ORDERS', columns: [{ column: 'CUSTOMER_NUMBER', otherShortName: 'CUSNO', otherLongName: 'CUSTOMER_NUMBER' }] }
+						]
+					},
+					{
+						tableId: 'PARTS.PART',
+						keys: [
+							{ direction: 'referencedBy', isNew: true, constraintName: '', otherSchema: 'DEV', otherTable: 'PART_COPY', otherTableId: 'DEV.PART_COPY', columns: [{ column: 'PART_NUMBER', otherShortName: 'PART_NUMBER' }] }
+						]
 					}
 				]
 			});
+		}
 
-			// The marker takes the place of a foreign-key column's link icon.
-			await user.click(within(requireTableNode('SALES.ORDERS')).getByTestId('AddLinkIcon'));
-			expect(postedAfterReady()).toEqual([{ command: 'addTables', tables: [{ schema: 'SALES', table: 'REGION' }] }]);
+		function columnRow(tableId: string, columnName: string): HTMLElement {
+			return requireTableNode(tableId).querySelector<HTMLElement>(`[data-column-name="${columnName}"]`) as HTMLElement;
+		}
 
-			await user.click(within(requireTableNode('PARTS.PART')).getByTestId('AddLinkIcon'));
+		it('a column\'s add-related button lists that column\'s keys, with a table already on the diagram ticked and disabled', async () => {
+			let user = userEvent.setup();
+			await renderDiagram();
+			postTableKeys();
+
+			// A button on each column with a key whose other table is off the diagram, in either direction,
+			// and none where every related table is already on it. The foreign key's own icon stays plain.
+			expect(within(columnRow('SALES.ORDERS', 'CUSTOMER_NUMBER')).getByTestId('add-related-tables-column')).toBeTruthy();
+			expect(within(columnRow('SALES.ORDERS', 'ORDER_NUMBER')).getByTestId('add-related-tables-column')).toBeTruthy();
+			expect(within(columnRow('SALES.ORDERS', 'CUSTOMER_NUMBER')).getByTestId('LinkIcon')).toBeTruthy();
+			expect(within(requireTableNode('SALES.CUSTOMER')).queryByTestId('add-related-tables-column')).toBeNull();
+			expect(within(requireTableNode('SALES.CUSTOMER')).queryByTestId('add-related-tables')).toBeNull();
+
+			await user.click(within(columnRow('SALES.ORDERS', 'CUSTOMER_NUMBER')).getByTestId('add-related-tables-column'));
 			let dialog = within(screen.getByRole('dialog'));
-			await user.click(dialog.getByRole('checkbox', { name: 'PARTS.LOCATION' }));
+
+			expect(screen.getByRole('heading', { name: 'Add Tables Related to SALES.ORDERS CUSNO' })).toBeTruthy();
+			expect(dialog.queryByText('Referenced By')).toBeNull();
+			expect(dialog.queryByRole('checkbox', { name: 'SALES.SHIPMENT' })).toBeNull();
+			expect(dialog.getAllByText('CUSNO → CUSNO')).toHaveLength(1);
+			expect(dialog.getByText('CUSNO → REGCUS')).toBeTruthy();
+
+			let customer = dialog.getByRole('checkbox', { name: 'SALES.CUSTOMER' }) as HTMLInputElement;
+			expect(customer.checked).toBe(true);
+			expect(customer.disabled).toBe(true);
+			expect((dialog.getByRole('checkbox', { name: 'SALES.REGION' }) as HTMLInputElement).checked).toBe(false);
+
+			await user.click(dialog.getByRole('checkbox', { name: 'SALES.REGION' }));
 			await user.click(dialog.getByRole('button', { name: 'Add' }));
 
-			expect(postedAfterReady().slice(1)).toEqual([{ command: 'addTables', tables: [{ schema: 'PARTS', table: 'LOCATION' }] }]);
+			expect(postedAfterReady()).toEqual([{ command: 'addTables', tables: [{ schema: 'SALES', table: 'REGION' }] }]);
+		});
+
+		it('the header\'s add-related button lists every key in both directions, and adds only what is ticked', async () => {
+			let user = userEvent.setup();
+			await renderDiagram();
+			postTableKeys();
+
+			// PART's sits beside its Imported badge.
+			expect(within(requireTableNode('PARTS.PART')).getByTestId('add-related-tables')).toBeTruthy();
+			expect(within(requireTableNode('PARTS.PART')).getByText('Imported')).toBeTruthy();
+
+			// An imported key with no name of its own shows the New badge in the Key column.
+			await user.click(within(requireTableNode('PARTS.PART')).getByTestId('add-related-tables'));
+			let partDialog = within(screen.getByRole('dialog'));
+			expect(partDialog.getByRole('checkbox', { name: 'DEV.PART_COPY' })).toBeTruthy();
+			expect(partDialog.getByText('New')).toBeTruthy();
+			expect(partDialog.getByText('Key')).toBeTruthy();
+			await user.click(partDialog.getByRole('button', { name: 'Cancel' }));
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+			await user.click(within(requireTableNode('SALES.ORDERS')).getByTestId('add-related-tables'));
+			let dialog = within(screen.getByRole('dialog'));
+
+			expect(screen.getByRole('heading', { name: 'Add Tables Related to SALES.ORDERS' })).toBeTruthy();
+			expect(dialog.getByText('References')).toBeTruthy();
+			expect(dialog.getByText('Referenced By')).toBeTruthy();
+			// The referencing side first in both sections.
+			expect(dialog.getByText('SHORD → ORDNO')).toBeTruthy();
+			expect(dialog.getByText('SHIPMENT_ORDERS_FK')).toBeTruthy();
+			// Sorted by schema and table, whatever order the host sent them in, and one row per table: ORDERS'
+			// two keys into CUSTOMER share a row, each key on its own line.
+			expect(dialog.getAllByRole('checkbox').map(box => box.getAttribute('aria-label'))).toEqual(['SALES.CUSTOMER', 'SALES.REGION', 'SALES.SHIPMENT']);
+			let customerRow = dialog.getByRole('checkbox', { name: 'SALES.CUSTOMER' }).closest('li') as HTMLElement;
+			expect(within(customerRow).getByText('ORDERS_CUSTOMER_FK')).toBeTruthy();
+			expect(within(customerRow).getByText('ORDERS_SHIP_TO_FK')).toBeTruthy();
+			expect(within(customerRow).getByText('ORDNO → CUSNO')).toBeTruthy();
+			// Both keys came from an import, but the row carries one New badge, not one per key.
+			expect(within(customerRow).getAllByText('New')).toHaveLength(1);
+
+			await user.click(dialog.getByRole('checkbox', { name: 'SALES.SHIPMENT' }));
+			await user.click(dialog.getByRole('checkbox', { name: 'SALES.REGION' }));
+			await user.click(dialog.getByRole('button', { name: 'Add' }));
+
+			expect(postedAfterReady()).toEqual([{ command: 'addTables', tables: [{ schema: 'SALES', table: 'REGION' }, { schema: 'SALES', table: 'SHIPMENT' }] }]);
+		});
+
+		it('the dialog\'s filter matches any text in a row - table, key name or column - and keeps hidden ticks', async () => {
+			let user = userEvent.setup();
+			await renderDiagram();
+			postTableKeys();
+
+			await user.click(within(requireTableNode('SALES.ORDERS')).getByTestId('add-related-tables'));
+			let dialog = within(screen.getByRole('dialog'));
+			let filter = dialog.getByRole('textbox', { name: 'Filter keys' });
+
+			// A column name on the other side only.
+			await user.type(filter, 'shord');
+			expect(dialog.getByRole('checkbox', { name: 'SALES.SHIPMENT' })).toBeTruthy();
+			expect(dialog.queryByRole('checkbox', { name: 'SALES.REGION' })).toBeNull();
+			expect(dialog.queryByText('References')).toBeNull();
+			await user.click(dialog.getByRole('checkbox', { name: 'SALES.SHIPMENT' }));
+
+			// A key name, case-insensitively.
+			await user.clear(filter);
+			await user.type(filter, 'region_fk');
+			expect(dialog.getByRole('checkbox', { name: 'SALES.REGION' })).toBeTruthy();
+			expect(dialog.queryByRole('checkbox', { name: 'SALES.SHIPMENT' })).toBeNull();
+
+			await user.clear(filter);
+			await user.type(filter, 'nothing like it');
+			expect(dialog.getByText('No keys match the filter.')).toBeTruthy();
+
+			// SHIPMENT was ticked before it was filtered out, and is still added.
+			await user.click(dialog.getByRole('button', { name: 'Add' }));
+			expect(postedAfterReady()).toEqual([{ command: 'addTables', tables: [{ schema: 'SALES', table: 'SHIPMENT' }] }]);
 		});
 	});
 

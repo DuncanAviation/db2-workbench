@@ -204,7 +204,9 @@ describe('diagram-resolved-table', () => {
 
 			expect(table.columns[0].foreignKey).to.be.true;
 			expect(table.foreignKeys).to.deep.equal([{
-				fromColumn: 'DEPARTMENT_ID', toSchema: 'HR', toTable: 'DEPARTMENT', toColumn: 'DEPARTMENT_ID'
+				fromColumn: 'DEPARTMENT_ID', toSchema: 'HR', toTable: 'DEPARTMENT', toColumn: 'DEPARTMENT_ID',
+				// Both name forms of the referenced column, for the add-related-tables dialog to label it.
+				constraintName: undefined, toShortName: 'DPID', toLongName: 'DEPARTMENT_ID', isNew: false
 			}]);
 		});
 

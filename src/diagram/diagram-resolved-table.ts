@@ -232,6 +232,10 @@ function toResolvedForeignKey(foreignKey: SchemaResolvedForeignKey, schema: stri
 		fromColumn: resolveColumnName(columns, foreignKey.columnName, foreignKey.systemColumnName),
 		toSchema: StringUtils.isNotBlank(foreignKey.referencedSchema) ? foreignKey.referencedSchema : schema,
 		toTable: foreignKey.referencedTable,
-		toColumn: foreignKey.referencedColumnName ?? foreignKey.referencedSystemColumnName
+		toColumn: foreignKey.referencedColumnName ?? foreignKey.referencedSystemColumnName,
+		constraintName: foreignKey.constraintName,
+		toShortName: foreignKey.referencedSystemColumnName,
+		toLongName: foreignKey.referencedColumnName,
+		isNew: foreignKey.isNew
 	};
 }

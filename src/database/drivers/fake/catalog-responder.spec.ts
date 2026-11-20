@@ -12,6 +12,7 @@ const responder = new CatalogResponder(SAMPLE_DATABASE);
 const COLUMNS_SQL = 'select dbname, tbname, colno, sys_cname, name from qsys2.syscolumns2 where ((dbname = ? and tbname = ?)) order by dbname, tbname, colno';
 const KEYS_SQL = 'select a.system_table_schema from qsys2.syscst a join qsys2.syskeycst c on a.constraint_name = c.constraint_name where ((a.system_table_schema = ? and a.system_table_name = ?)) and a.constraint_type in (\'PRIMARY KEY\', \'UNIQUE\')';
 const FOREIGN_KEYS_SQL = 'select a.system_table_schema as owning_schema from qsys2.syscst a join qsys2.sysrefcst b on a.constraint_name = b.constraint_name where ((a.system_table_schema = ? and a.system_table_name = ?)) and a.constraint_type = \'FOREIGN KEY\'';
+const REFERENCING_FOREIGN_KEYS_SQL = 'select a.system_table_schema as owning_schema from qsys2.syscst a join qsys2.sysrefcst b on a.constraint_name = b.constraint_name join qsys2.syscst d on b.unique_constraint_name = d.constraint_name where ((d.system_table_schema = ? and d.system_table_name = ?)) and d.constraint_type in (\'PRIMARY KEY\', \'UNIQUE\')';
 const INDEXES_SQL = 'select p.table_schema from qsys2.syspartitionindexstat p left join qsys2.sysindexes i on p.index_name = i.index_name where ((p.table_schema = ? and p.table_name = ?))';
 const ADVICE_SQL = 'select rrn(sysixadv) as id, table_schema, table_name from qsys2.sysixadv where ((table_schema = ? and table_name = ?))';
 
@@ -160,6 +161,19 @@ describe('CatalogResponder.respond', () => {
 			['SHPDT', 2, 'ORDDT']
 		]);
 		expect(rows.map(row => row['REFERENCED_COLUMN_NAME'])).to.deep.equal(['CUSTOMER_NUMBER', 'ORDER_DATE']);
+	});
+
+	it('answers the referencing foreign key query from the parent side, with each row still the child\'s key', () => {
+		let rows = <Record<string, unknown>[]>responder.respond(REFERENCING_FOREIGN_KEYS_SQL, ['SALES', 'ORDERS']);
+
+		expect(rows.map(row => [row['OWNING_TABLE'], row['CONSTRAINT_NAME'], row['SYSTEM_COLUMN_NAME'], row['REFERENCED_TABLE'], row['REFERENCED_SYSTEM_COLUMN_NAME']])).to.deep.equal([
+			['SHIPMENT', 'SHIPMENT_ORDERS_FK', 'SHPCUS', 'ORDERS', 'CUSTNO'],
+			['SHIPMENT', 'SHIPMENT_ORDERS_FK', 'SHPDT', 'ORDERS', 'ORDDT']
+		]);
+	});
+
+	it('answers the referencing foreign key query with nothing for a table no key points at', () => {
+		expect(responder.respond(REFERENCING_FOREIGN_KEYS_SQL, ['SALES', 'SHIPMENT'])).to.deep.equal([]);
 	});
 
 	it('answers the index query, keeping the numeric uniqueness code the mapper decodes', () => {

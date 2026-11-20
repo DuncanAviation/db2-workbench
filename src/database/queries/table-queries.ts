@@ -90,53 +90,32 @@ export class TableQueries {
 		});
 	}
 
+	// A table's own (outgoing) foreign keys, filtered on the child side (a).
 	async listForeignKeys(options: TableQueries.ListForeignKeysOptions): Promise<SystemForeignKey[]> {
-		// d/e resolve the referenced table/columns: SYSREFCST only carries the referenced constraint's
-		// name (b.unique_constraint_schema/name), so it's joined back into SYSCST (d) to get the
-		// referenced table and SYSKEYCST (e) to get the referenced columns, matched to this FK's own
-		// key columns (c) by ordinal position. a's own table comes back aliased owning_schema/owning_table
-		// rather than selected bare, since referenced_schema/referenced_table already name d's.
 		return queryByTableTargets<SystemForeignKey>({
 			tables: options?.tables,
 			columns: {schema: 'a.system_table_schema', table: 'a.system_table_name'},
-			run: predicate => this.runQuery(options, `select a.system_table_schema as owning_schema, a.system_table_name as owning_table, ` +
-					`a.constraint_name, c.column_name, c.system_column_name, c.ordinal_position, ` +
-					`b.update_rule, b.delete_rule, ` +
-					`d.system_table_schema as referenced_schema, d.system_table_name as referenced_table, ` +
-					`e.column_name as referenced_column_name, e.system_column_name as referenced_system_column_name ` +
-					`from qsys2.syscst a ` +
-					`join qsys2.sysrefcst b ` +
-					`on a.constraint_schema = b.constraint_schema ` +
-					`and a.constraint_name = b.constraint_name ` +
-					`join qsys2.syskeycst c ` +
-					`on a.constraint_schema = c.constraint_schema ` +
-					`and a.constraint_name = c.constraint_name ` +
-					`join qsys2.syscst d ` +
-					`on b.unique_constraint_schema = d.constraint_schema ` +
-					`and b.unique_constraint_name = d.constraint_name ` +
-					`join qsys2.syskeycst e ` +
-					`on d.constraint_schema = e.constraint_schema ` +
-					`and d.constraint_name = e.constraint_name ` +
-					`and c.ordinal_position = e.ordinal_position ` +
+			run: predicate => this.runQuery(options, `${TableQueries.FOREIGN_KEY_SELECT} ` +
 					`where (${predicate.clause}) ` +
 					`and a.constraint_type = 'FOREIGN KEY' ` +
 					`order by owning_schema, owning_table, a.constraint_name, c.ordinal_position`, predicate),
-			map: row => {
-				return <SystemForeignKey>{
-					schema: TableQueries.readName(row, 'OWNING_SCHEMA'),
-					tableName: TableQueries.readName(row, 'OWNING_TABLE'),
-					constraintName: StringUtils.trim(<string>row['CONSTRAINT_NAME'], {removeDuplicateWhiteSpace: true}),
-					columnName: StringUtils.trim(<string>row['COLUMN_NAME'], {removeDuplicateWhiteSpace: true}),
-					systemColumnName: StringUtils.trim(<string>row['SYSTEM_COLUMN_NAME'], {removeDuplicateWhiteSpace: true}),
-					ordinalPosition: <number>row['ORDINAL_POSITION'],
-					updateRule: StringUtils.trim(<string>row['UPDATE_RULE'], {removeDuplicateWhiteSpace: true}),
-					deleteRule: StringUtils.trim(<string>row['DELETE_RULE'], {removeDuplicateWhiteSpace: true}),
-					referencedSchema: StringUtils.trim(<string>row['REFERENCED_SCHEMA'], {removeDuplicateWhiteSpace: true}),
-					referencedTable: StringUtils.trim(<string>row['REFERENCED_TABLE'], {removeDuplicateWhiteSpace: true}),
-					referencedColumnName: StringUtils.trim(<string>row['REFERENCED_COLUMN_NAME'], {removeDuplicateWhiteSpace: true}),
-					referencedSystemColumnName: StringUtils.trim(<string>row['REFERENCED_SYSTEM_COLUMN_NAME'], {removeDuplicateWhiteSpace: true})
-				};
-			}
+			map: row => TableQueries.mapForeignKey(row)
+		});
+	}
+
+	// The foreign keys in OTHER tables that reference these tables: the same join filtered on the parent
+	// side (d) instead, so each row still describes the child's key, but belongs to the referenced table.
+	// The constraint_type test is on d rather than a for the same reason - d is the referenced key, which
+	// is only ever a primary or unique key; a is then a foreign key by construction of the SYSREFCST join.
+	async listReferencingForeignKeys(options: TableQueries.ListForeignKeysOptions): Promise<SystemForeignKey[]> {
+		return queryByTableTargets<SystemForeignKey>({
+			tables: options?.tables,
+			columns: {schema: 'd.system_table_schema', table: 'd.system_table_name'},
+			run: predicate => this.runQuery(options, `${TableQueries.FOREIGN_KEY_SELECT} ` +
+					`where (${predicate.clause}) ` +
+					`and d.constraint_type in ('PRIMARY KEY', 'UNIQUE') ` +
+					`order by referenced_schema, referenced_table, owning_schema, owning_table, a.constraint_name, c.ordinal_position`, predicate),
+			map: row => TableQueries.mapForeignKey(row)
 		});
 	}
 
@@ -220,6 +199,51 @@ export class TableQueries {
 			sql: sql,
 			parameters: predicate.parameters
 		});
+	}
+
+	// Shared by listForeignKeys and listReferencingForeignKeys, which differ only in which side they filter
+	// on. d/e resolve the referenced table/columns: SYSREFCST only carries the referenced constraint's
+	// name (b.unique_constraint_schema/name), so it's joined back into SYSCST (d) to get the referenced
+	// table and SYSKEYCST (e) to get the referenced columns, matched to this FK's own key columns (c) by
+	// ordinal position. a's own table comes back aliased owning_schema/owning_table rather than selected
+	// bare, since referenced_schema/referenced_table already name d's.
+	private static readonly FOREIGN_KEY_SELECT = `select a.system_table_schema as owning_schema, a.system_table_name as owning_table, ` +
+		`a.constraint_name, c.column_name, c.system_column_name, c.ordinal_position, ` +
+		`b.update_rule, b.delete_rule, ` +
+		`d.system_table_schema as referenced_schema, d.system_table_name as referenced_table, ` +
+		`e.column_name as referenced_column_name, e.system_column_name as referenced_system_column_name ` +
+		`from qsys2.syscst a ` +
+		`join qsys2.sysrefcst b ` +
+		`on a.constraint_schema = b.constraint_schema ` +
+		`and a.constraint_name = b.constraint_name ` +
+		`join qsys2.syskeycst c ` +
+		`on a.constraint_schema = c.constraint_schema ` +
+		`and a.constraint_name = c.constraint_name ` +
+		`join qsys2.syscst d ` +
+		`on b.unique_constraint_schema = d.constraint_schema ` +
+		`and b.unique_constraint_name = d.constraint_name ` +
+		`join qsys2.syskeycst e ` +
+		`on d.constraint_schema = e.constraint_schema ` +
+		`and d.constraint_name = e.constraint_name ` +
+		`and c.ordinal_position = e.ordinal_position`;
+
+	// Both sides' names go through readName, since either side can be what a row is attributed by
+	// (owning for listForeignKeys, referenced for listReferencingForeignKeys).
+	private static mapForeignKey(row: Record<string, unknown>): SystemForeignKey {
+		return {
+			schema: TableQueries.readName(row, 'OWNING_SCHEMA'),
+			tableName: TableQueries.readName(row, 'OWNING_TABLE'),
+			constraintName: <string>StringUtils.trim(<string>row['CONSTRAINT_NAME'], {removeDuplicateWhiteSpace: true}),
+			columnName: <string>StringUtils.trim(<string>row['COLUMN_NAME'], {removeDuplicateWhiteSpace: true}),
+			systemColumnName: <string>StringUtils.trim(<string>row['SYSTEM_COLUMN_NAME'], {removeDuplicateWhiteSpace: true}),
+			ordinalPosition: <number>row['ORDINAL_POSITION'],
+			updateRule: <string>StringUtils.trim(<string>row['UPDATE_RULE'], {removeDuplicateWhiteSpace: true}),
+			deleteRule: <string>StringUtils.trim(<string>row['DELETE_RULE'], {removeDuplicateWhiteSpace: true}),
+			referencedSchema: TableQueries.readName(row, 'REFERENCED_SCHEMA'),
+			referencedTable: TableQueries.readName(row, 'REFERENCED_TABLE'),
+			referencedColumnName: <string>StringUtils.trim(<string>row['REFERENCED_COLUMN_NAME'], {removeDuplicateWhiteSpace: true}),
+			referencedSystemColumnName: <string>StringUtils.trim(<string>row['REFERENCED_SYSTEM_COLUMN_NAME'], {removeDuplicateWhiteSpace: true})
+		};
 	}
 
 	// The schema/table a row belongs to, read off the row itself rather than off the request. Always

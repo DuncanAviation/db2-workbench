@@ -6,7 +6,7 @@ import { SystemTable } from '../models/system-table.js';
 import { SystemTableKey } from '../models/system-table-key.js';
 import { TableSchema } from '../models/table-schema.js';
 import { ImportedTableSchema, ImportProvenance } from './schema-format-converter.js';
-import { resolveColumns, resolveForeignKeys, resolveIndexes, resolveTable, resolveTableKeys } from './table-resolver.js';
+import { ReferencingForeignKeyInputs, referencingChildKey, resolveColumns, resolveForeignKeys, resolveIndexes, resolveReferencingForeignKeys, resolveTable, resolveTableKeys } from './table-resolver.js';
 
 function systemColumn(overrides: Partial<SystemColumn> = {}): SystemColumn {
 	return {
@@ -349,6 +349,76 @@ describe('resolveForeignKeys', () => {
 			let imported = [importedTable({foreignKeys: [{name: 'IMPORTED_FK', columns: ['PARENT_IDENTIFIER'], referencedSchema: 'SCH', referencedTable: 'PARENT', referencedColumns: ['ID']}]})];
 			expect(resolveForeignKeys(foreignKeys, imported, columns)).to.have.length(1);
 		});
+	});
+});
+
+describe('resolveReferencingForeignKeys', () => {
+	const TARGET = {schema: 'MYSCHEMA', table: 'PARENT'};
+
+	function inputs(overrides: Partial<ReferencingForeignKeyInputs> = {}): ReferencingForeignKeyInputs {
+		return {target: TARGET, connected: [], importedChildren: [], childColumns: new Map(), childImported: new Map(), targetImported: [], ...overrides};
+	}
+
+	it('passes DB2\'s referencing keys through unchanged, flagged as not new', () => {
+		let connected = [systemForeignKey({tableName: 'CHILD'})];
+		expect(resolveReferencingForeignKeys(inputs({connected}))).to.deep.equal([{...connected[0], isNew: false}]);
+	});
+
+	it('adds an imported referencing key as new, naming its child and the target', () => {
+		let importedChildren = [importedTable({schema: 'MYSCHEMA', name: 'CHILD', foreignKeys: [{name: 'CHILD_FK', columns: ['PID'], referencedTable: 'PARENT', referencedColumns: ['ID']}]})];
+
+		expect(resolveReferencingForeignKeys(inputs({connected: undefined, importedChildren}))).to.deep.equal([{
+			schema: 'MYSCHEMA', tableName: 'CHILD', constraintName: 'CHILD_FK', systemColumnName: 'PID', ordinalPosition: 1,
+			updateRule: undefined, deleteRule: undefined,
+			referencedSchema: 'MYSCHEMA', referencedTable: 'PARENT', referencedSystemColumnName: 'ID', isNew: true
+		}]);
+	});
+
+	// The case the forward direction can't handle: both sides' columns resolve, so DB2's short names on
+	// either side match an import's long ones.
+	it('does not duplicate a DB2 key an import names by long names on both sides', () => {
+		let connected = [systemForeignKey({tableName: 'CHILD', systemColumnName: 'PID', referencedSystemColumnName: 'ID'})];
+		let importedChildren = [importedTable({schema: 'MYSCHEMA', name: 'CHILD', foreignKeys: [{columns: ['PARENT_IDENTIFIER'], referencedTable: 'PARENT', referencedColumns: ['IDENTIFIER']}]})];
+		let childColumns = new Map([[referencingChildKey('MYSCHEMA', 'CHILD'), [systemColumn({tableName: 'CHILD', systemName: 'PID', sqlName: 'PARENT_IDENTIFIER'})]]]);
+		let targetColumns = [systemColumn({tableName: 'PARENT', systemName: 'ID', sqlName: 'IDENTIFIER'})];
+
+		expect(resolveReferencingForeignKeys(inputs({connected, importedChildren, childColumns, targetColumns}))).to.have.length(1);
+	});
+
+	it('keeps keys from different children apart even when their constraint names and columns match', () => {
+		let connected = [
+			systemForeignKey({tableName: 'CHILD_A', constraintName: 'PARENT_FK', systemColumnName: 'PID'}),
+			systemForeignKey({tableName: 'CHILD_B', constraintName: 'PARENT_FK', systemColumnName: 'PID'})
+		];
+		// The same key as CHILD_B's, from an import - a duplicate of CHILD_B's only, not of CHILD_A's.
+		let importedChildren = [
+			importedTable({schema: 'MYSCHEMA', name: 'CHILD_B', foreignKeys: [{columns: ['PID'], referencedTable: 'PARENT', referencedColumns: ['ID']}]}),
+			importedTable({schema: 'MYSCHEMA', name: 'CHILD_C', foreignKeys: [{columns: ['PID'], referencedTable: 'PARENT', referencedColumns: ['ID']}]})
+		];
+
+		let resolved = resolveReferencingForeignKeys(inputs({connected, importedChildren}));
+		expect(resolved.map(row => [row.tableName, row.isNew])).to.deep.equal([['CHILD_A', false], ['CHILD_B', false], ['CHILD_C', true]]);
+	});
+
+	it('keeps two keys from one child to the same target, and drops the second import of either', () => {
+		let group = {columns: ['GRPID'], referencedTable: 'PARENT', referencedColumns: ['ID']};
+		let restricted = {columns: ['RSTGRPID'], referencedTable: 'PARENT', referencedColumns: ['ID']};
+		let importedChildren = [
+			importedTable({schema: 'MYSCHEMA', name: 'CHILD', foreignKeys: [group, restricted]}),
+			importedTable({schema: 'MYSCHEMA', name: 'CHILD', foreignKeys: [restricted]})
+		];
+
+		expect(resolveReferencingForeignKeys(inputs({importedChildren})).map(row => row.systemColumnName)).to.deep.equal(['GRPID', 'RSTGRPID']);
+	});
+
+	it('keeps a composite imported key\'s columns together under one constraint name', () => {
+		let importedChildren = [importedTable({schema: 'MYSCHEMA', name: 'CHILD', foreignKeys: [{columns: ['A', 'B'], referencedTable: 'PARENT', referencedColumns: ['X', 'Y']}]})];
+		let resolved = resolveReferencingForeignKeys(inputs({importedChildren}));
+
+		expect(resolved.map(row => [row.constraintName, row.ordinalPosition, row.systemColumnName, row.referencedSystemColumnName])).to.deep.equal([
+			['imported-fk-0', 1, 'A', 'X'],
+			['imported-fk-0', 2, 'B', 'Y']
+		]);
 	});
 });
 

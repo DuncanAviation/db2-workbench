@@ -9,7 +9,7 @@ import BoltIcon from '@mui/icons-material/Bolt';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
-import type { DiagramColumn, DiagramTable, MissingRelationshipTarget } from '../../../src/webview-messages/diagram-messages';
+import type { DiagramColumn, DiagramTable } from '../../../src/webview-messages/diagram-messages';
 import { TABLE_MIDDLE_HANDLE_ID } from '../../../src/diagram/diagram-edge-routing';
 import { columnDisplayName, columnTooltipLines } from '../../../src/diagram/diagram-column-labels';
 import type { ColumnIndexMembership, ForeignKeyTarget } from '../../../src/diagram/diagram-column-labels';
@@ -45,11 +45,16 @@ export interface TableNodeData {
 	// the mirror image of the whole-table `dimmed` case above. Empty whenever that split doesn't apply.
 	dimmedColumnNames: ReadonlySet<string>;
 	onColumnClick: (tableId: string, columnName: string) => void;
-	// This table's foreign keys whose referenced table isn't on the diagram, keyed by column name -
-	// each draws an "add the other end" button on its row. Pre-narrowed to this table by app.tsx so a
-	// node doesn't have to filter the whole diagram's list on every render. Empty while disconnected.
-	missingTargetsByColumn: ReadonlyMap<string, MissingRelationshipTarget>;
-	onAddMissingTarget: (target: MissingRelationshipTarget) => void;
+	// The columns that are part of a foreign key, in either direction, whose other table isn't on the
+	// diagram - each draws an "add related tables" button after its name. Worked out by app.tsx (see
+	// DiagramTableKey) so a node doesn't have to scan the whole diagram's keys on every render. Empty
+	// while disconnected.
+	addableColumns: ReadonlySet<string>;
+	// True when any of this table's keys, in either direction, has its other table off the diagram - the
+	// same button in the header, for all of the table's keys at once.
+	hasAddableKeys: boolean;
+	// Opens the related-tables dialog: for one column's keys when columnName is given, else the table's.
+	onShowKeys: (tableId: string, columnName?: string) => void;
 	// This table's own outgoing relationships (it's the foreign-key/fromTable end), keyed by fromColumn -
 	// what a column's tooltip needs to say which table/column it's a foreign key to. A column can be the
 	// source of more than one (a composite key shared across relationships), hence an array per column
@@ -104,7 +109,7 @@ const marchingAnts = keyframes`
 function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData}) {
 	let {
 		table, color, expanded, dimmed, columnLabels, highlightedColumns, dimmedColumnNames, onColumnClick,
-		missingTargetsByColumn, onAddMissingTarget, foreignKeyTargetsByColumn, outgoingRelationshipCount
+		addableColumns, hasAddableKeys, onShowKeys, foreignKeyTargetsByColumn, outgoingRelationshipCount
 	} = data;
 
 	let tableTooltip = (
@@ -191,6 +196,10 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 								its own hover tooltip is skipped here since the header's own Tooltip (tableTooltip, wrapping
 								this whole box) already explains Imported/Enhanced via TableTooltipContent below. Wrapped in
 								a shrink-to-fit Box so the Chip's own flex sizing doesn't fight flexGrow on the name above it. */}
+								{/* Left of the badge rather than after it, so the two never overlap: both are flexShrink: 0
+								and the name above is what truncates. The same icon as the column-row button, since it's
+								the same action - for all of the table's keys rather than one column's. */}
+								{hasAddableKeys && <AddRelatedTablesIcon testId="add-related-tables" fontSize={16} title="Add related tables to the diagram" placement="top" onClick={() => onShowKeys(table.id)} />}
 								{table.importStatus && (
 									<Box sx={{flexShrink: 0}}>
 										<ImportBadge kind={importBadgeKind(table.importStatus)} />
@@ -215,8 +224,8 @@ function TableNodeComponent({data, selected}: NodeProps & {data: TableNodeData})
 								highlighted={highlightedColumns.has(column.name)}
 								dimmed={dimmedColumnNames.has(column.name)}
 								onClick={() => onColumnClick(table.id, column.name)}
-								missingTarget={missingTargetsByColumn.get(column.name)}
-								onAddMissingTarget={onAddMissingTarget}
+								addable={addableColumns.has(column.name)}
+								onShowKeys={() => onShowKeys(table.id, column.name)}
 								foreignKeyTargets={foreignKeyTargetsByColumn.get(column.name)}
 								uniquePartners={uniquePartnersByColumn.get(column.name)}
 								indexes={indexesByColumn.get(column.name)}
@@ -280,8 +289,8 @@ interface ColumnRowProps {
 	// this row is one of the non-matching columns being dimmed out while its table stays at full weight.
 	dimmed: boolean;
 	onClick: () => void;
-	missingTarget?: MissingRelationshipTarget;
-	onAddMissingTarget: (target: MissingRelationshipTarget) => void;
+	addable: boolean;
+	onShowKeys: () => void;
 	foreignKeyTargets?: ForeignKeyTarget[];
 	// Other columns sharing this column's unique constraint (see TableNodeComponent's own comment on why
 	// this is resolved to display form up there, not here) and the indexes this column is a key column of -
@@ -291,7 +300,7 @@ interface ColumnRowProps {
 }
 
 function ColumnRow({
-	column, columnLabels, highlighted, dimmed, onClick, missingTarget, onAddMissingTarget, foreignKeyTargets, uniquePartners, indexes
+	column, columnLabels, highlighted, dimmed, onClick, addable, onShowKeys, foreignKeyTargets, uniquePartners, indexes
 }: ColumnRowProps) {
 	function handleClick(event: ReactMouseEvent) {
 		// Stops this from also bubbling up to the node's own onNodeClick - clicking a column is a
@@ -342,7 +351,7 @@ function ColumnRow({
 			<Handle id={`${column.name}-source-right`} type="source" position={Position.Right} style={HANDLE_STYLE} />
 
 			<Box sx={{width: 16, display: 'flex', justifyContent: 'center', flexShrink: 0}}>
-				<ColumnIcon column={column} missingTarget={missingTarget} onAddMissingTarget={onAddMissingTarget} />
+				<ColumnIcon column={column} />
 			</Box>
 			{/* The label, not the identity - a row reads the way the results grid and schema browser read.
 			Only the first configured option is shown: one narrow cell can't fit two or three names.
@@ -360,6 +369,10 @@ function ColumnRow({
 			{/* To the RIGHT of the name (never the left, where ColumnIcon's identity/key/FK markers live)
 			so the two icon families never collide in the same 16px slot. */}
 			{column.imported && <AutoAwesomeIcon sx={{fontSize: 12, color: IMPORT_COLOR, flexShrink: 0}} titleAccess="New or modified by an import" />}
+			{/* After the name and the import marker, not in ColumnIcon's slot: that slot says what the column
+			is (identity, primary key, foreign key), this says there's more to bring in through it - in either
+			direction, so a primary key column that other tables reference gets one too. */}
+			{addable && <AddRelatedTablesIcon testId="add-related-tables-column" fontSize={12} color={COLUMN_ICON_COLOR} title="Add related tables to the diagram" placement="right" onClick={onShowKeys} />}
 			{/* marginLeft: auto claims whatever width the name gave up, pushing the type to the row's own
 			right edge same as before (the row's own `gap` still covers the minimum spacing when there's
 			nothing to push against, e.g. a name long enough to fill the row on its own) - the row's overall
@@ -439,11 +452,7 @@ function TableTooltipContent({table, outgoingRelationshipCount}: {table: Diagram
 // column); PK-but-not-identity falls back to the key icon, and FK-but-neither still gets its own icon so
 // that distinction isn't lost entirely. All three markers share COLUMN_ICON_COLOR - one visual family for
 // "this column is special", not a ranking implied by different colors.
-function ColumnIcon({column, missingTarget, onAddMissingTarget}: {
-	column: DiagramColumn;
-	missingTarget?: MissingRelationshipTarget;
-	onAddMissingTarget: (target: MissingRelationshipTarget) => void;
-}) {
+function ColumnIcon({column}: {column: DiagramColumn}) {
 	if (column.identity) {
 		return <BoltIcon sx={{fontSize: 12, color: COLUMN_ICON_COLOR}} titleAccess="Identity column" />;
 	}
@@ -453,41 +462,34 @@ function ColumnIcon({column, missingTarget, onAddMissingTarget}: {
 	}
 
 	if (column.foreignKey) {
-		// The referenced table isn't on the diagram yet - same slot the normal foreign-key icon would
-		// otherwise occupy, swapped for a "+" version that both signals that and adds it on click, rather
-		// than a separate icon elsewhere on the row (this used to sit at the row's right edge - moved here
-		// so a column's relationship state is always read from one place).
-		if (missingTarget) {
-			return <MissingTargetIcon target={missingTarget} onClick={onAddMissingTarget} />;
-		}
-
 		return <LinkIcon sx={{fontSize: 12, color: COLUMN_ICON_COLOR}} titleAccess="Foreign key" />;
 	}
 
 	return null;
 }
 
-// The other end(s) of a foreign key that isn't on the diagram yet. Deliberately always visible rather
-// than revealed on row hover: a relationship you can't see is exactly the thing you'd never think to go
-// hunting for. The tooltip carries the target's name, since the icon itself has no room for it - and
-// only names it when there's exactly one, since a column pointing at several opens a picker anyway
-// (see app.tsx's handleAddMissingTarget).
-function MissingTargetIcon({target, onClick}: {target: MissingRelationshipTarget; onClick: (target: MissingRelationshipTarget) => void}) {
+// The "add related tables" button, on a column row (that column's keys) or in the header (all of the
+// table's). Deliberately always visible rather than revealed on hover: a relationship you can't see is
+// exactly the thing you'd never think to go hunting for. `nodrag` because the header is the table's drag
+// handle: without it a press there could start a move instead of a click. Stops propagation so the row's
+// own click (select the column) and the node's don't also fire - this is its own action.
+function AddRelatedTablesIcon({testId, fontSize, color, title, placement, onClick}: {
+	testId: string;
+	fontSize: number;
+	color?: string;
+	title: string;
+	placement: 'top' | 'right';
+	onClick: () => void;
+}) {
 	function handleClick(event: ReactMouseEvent) {
-		// Stops the row's own click handler (select the column, highlight its relationships) from also
-		// firing - and, through it, the node's. This is its own action, not a column selection.
 		event.stopPropagation();
-		onClick(target);
+		onClick();
 	}
 
-	let title = target.targets.length === 1
-		? `Add ${target.targets[0].targetSchema}.${target.targets[0].targetTable} to the diagram`
-		: `Add ${target.targets.length} referenced tables to the diagram`;
-
 	return (
-		<MenuAwareTooltip title={title} placement="right">
-			<Box onClick={handleClick} sx={{display: 'flex', color: COLUMN_ICON_COLOR}}>
-				<AddLinkIcon sx={{fontSize: 12}} />
+		<MenuAwareTooltip title={title} placement={placement}>
+			<Box className="nodrag" data-testid={testId} onClick={handleClick} sx={{display: 'flex', flexShrink: 0, cursor: 'pointer', color: color}}>
+				<AddLinkIcon sx={{fontSize: fontSize}} />
 			</Box>
 		</MenuAwareTooltip>
 	);

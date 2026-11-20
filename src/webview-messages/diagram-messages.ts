@@ -273,42 +273,55 @@ export interface DiagramColumnLabelsMessage {
 	columnLabels: string[];
 }
 
-// One referenced-but-absent table a missing-target marker offers to bring in.
-export interface MissingTargetTable {
-	targetSchema: string;
-	targetTable: string;
-	targetColumn: string;
+// One foreign key that touches a table on the diagram, told from that table's side: either one of its
+// own keys pointing at another table, or another table's key pointing at it. Declared here, alongside
+// the message that carries it, for the same reason DiagramTreeTable is: it's a wire type. Built by
+// src/diagram/diagram-table-keys.ts.
+export interface DiagramTableKey {
+	/** 'references': this table's key, pointing at another. 'referencedBy': another table's key, pointing at this one. */
+	direction: 'references' | 'referencedBy';
+	/** Blank for an imported key that came with no name. */
+	constraintName: string;
+	/** The key came only from an import, not from the database. */
+	isNew: boolean;
+	/** The table at the key's other end, and its diagram id - so the webview can tell whether it's on the canvas. */
+	otherSchema: string;
+	otherTable: string;
+	otherTableId: string;
+	/** The column pairs, in key order. */
+	columns: DiagramKeyColumn[];
 }
 
-// One column on the diagram carrying at least one foreign key whose referenced table ISN'T on it -
-// drawn as a "bring that table in" marker on its column (see table-node.tsx). Declared here, alongside
-// the message that carries it, for the same reason DiagramTreeTable is: it's a wire type. The rule for
-// deciding which keys qualify lives in src/diagram/diagram-missing-targets.ts.
-export interface MissingRelationshipTarget {
-	/** The table ON the diagram that declares the foreign key. */
+export interface DiagramKeyColumn {
+	/** This table's column, by its identity (DiagramColumn.name) - the row the key belongs to. */
+	column: string;
+	/** The other table's column, in whichever name forms the catalog or the import gave - the other
+	 * table needn't be on the diagram, so there's no DiagramColumn to label it from. */
+	otherShortName?: string;
+	otherLongName?: string;
+}
+
+export interface DiagramTableKeys {
 	tableId: string;
-	/** Its column - the row the marker is drawn on. */
-	columnName: string;
-	// Every distinct table this column's unresolved foreign keys point at, not just the first - DB2
-	// permits more than one key to leave the same column, and the marker offers the whole set as a
-	// checkbox list rather than silently picking one (see add-missing-targets-dialog.tsx). Never empty.
-	targets: MissingTargetTable[];
+	/** Never empty. */
+	keys: DiagramTableKey[];
 }
 
-// Pushed by the host rather than derived in the webview because the model only stores the
-// relationships that were actually drawn: a skipped key leaves nothing behind but a column flagged
-// foreignKey, which says nothing about what it points at. Empty whenever the diagram is
-// disconnected, since there'd be no way to act on a marker anyway.
-export interface DiagramMissingTargetsMessage {
-	command: 'missingTargetsLoaded';
-	targets: MissingRelationshipTarget[];
+// Every foreign key in either direction for each table on the diagram, whether or not the other table is
+// on it - the webview decides that against its own current tables, so a table added since this was sent
+// is already counted. Pushed by the host rather than derived in the webview because the model only stores
+// the relationships that were actually drawn. Empty whenever the diagram is disconnected, since there'd
+// be no way to act on a marker anyway.
+export interface DiagramTableKeysMessage {
+	command: 'tableKeysLoaded';
+	tables: DiagramTableKeys[];
 }
 
 // One table that resolves against NEITHER a connected row NOR any current import, offered to the user as
 // a Keep/Remove choice. Raised by "Sync with Database" (every such table on the diagram at once) and by
 // "Disable Imported Changes" (the one table, when disabling its import is what would leave it with no
 // source at all). Declared here, alongside the messages that carry it, for the same reason
-// MissingRelationshipTarget is: it's a wire type. schema/table (not just tableId) are what the Keep/Remove
+// DiagramTableKey is: it's a wire type. schema/table (not just tableId) are what the Keep/Remove
 // confirmation dialog displays.
 export interface DiagramSyncOrphan {
 	tableId: string;
@@ -367,7 +380,7 @@ export interface DiagramSyncSummaryMessage {
 	tables: DiagramSyncResultTable[];
 }
 
-export type DiagramInboundMessage = DiagramSqlImportLoadedMessage | DiagramSqlImportSavedMessage | DiagramOpenSqlImportEditorMessage | DiagramSqlImportConnectionsMessage | DiagramSqlImportRunResultMessage | DiagramSqlImportResultMessage | DiagramImportSchemaSummaryMessage | DiagramImportsMessage | DiagramModelUpdatedMessage | DiagramConnectionChangedMessage | DiagramConnectAbortedMessage | DiagramSchemaTablesMessage | DiagramMissingTargetsMessage | DiagramImportSchemaErrorMessage | DiagramColumnLabelsMessage | DiagramSyncOrphansMessage | DiagramSyncSummaryMessage | DiagramImportRemovalOrphanMessage;
+export type DiagramInboundMessage = DiagramSqlImportLoadedMessage | DiagramSqlImportSavedMessage | DiagramOpenSqlImportEditorMessage | DiagramSqlImportConnectionsMessage | DiagramSqlImportRunResultMessage | DiagramSqlImportResultMessage | DiagramImportSchemaSummaryMessage | DiagramImportsMessage | DiagramModelUpdatedMessage | DiagramConnectionChangedMessage | DiagramConnectAbortedMessage | DiagramSchemaTablesMessage | DiagramTableKeysMessage | DiagramImportSchemaErrorMessage | DiagramColumnLabelsMessage | DiagramSyncOrphansMessage | DiagramSyncSummaryMessage | DiagramImportRemovalOrphanMessage;
 
 // Webview -> host.
 export interface MoveTableMessage {

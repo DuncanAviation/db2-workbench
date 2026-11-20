@@ -2,7 +2,7 @@ import { Parameter } from '../../../interfaces/parameter.js';
 import { ArrayUtils } from '../../../utils/array-utils.js';
 import { Nullable } from '../../../utils/nullable.js';
 import { StringUtils } from '../../../utils/string-utils.js';
-import { FakeDatabase, FakeFunction, FakeProcedure, FakeProcedureParameter, FakeSchema, FakeTable, FakeTrigger, FakeView } from './fake-database.js';
+import { FakeDatabase, FakeForeignKey, FakeFunction, FakeProcedure, FakeProcedureParameter, FakeSchema, FakeTable, FakeTrigger, FakeView } from './fake-database.js';
 import { FakeLibraryList } from './fake-library-list.js';
 
 /**
@@ -70,6 +70,12 @@ export class CatalogResponder {
 
 		if(normalized.includes('qsys2.syscolumns2')) {
 			return this.buildColumns(CatalogResponder.readTargets(normalized, values, 'dbname', 'tbname'));
+		}
+
+		// Both foreign key lookups run the same join and differ only in which side's alias the predicate
+		// names (TableQueries.listReferencingForeignKeys) - readTargets strips aliases, so that's the tell.
+		if(normalized.includes('qsys2.sysrefcst') && /\bd\.system_table_(schema|name)\s*(=|in\b)/.test(normalized)) {
+			return this.buildReferencingForeignKeys(CatalogResponder.readTargets(normalized, values, 'system_table_schema', 'system_table_name'));
 		}
 
 		if(normalized.includes('qsys2.sysrefcst')) {
@@ -387,30 +393,54 @@ export class CatalogResponder {
 	}
 
 	private buildForeignKeys(targets: CatalogResponder.Target[]): Record<string, unknown>[] {
-		return this.eachTable(targets, (schema, table) => table.foreignKeys.flatMap(foreignKey => {
-			let referenced = this.database.schemas
-				.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, foreignKey.referencedSchema))
-				?.tables.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, foreignKey.referencedTable));
+		return this.eachTable(targets, (schema, table) => table.foreignKeys.flatMap(foreignKey => this.foreignKeyRows(schema, table, foreignKey)));
+	}
 
-			return foreignKey.columns.map((columnName, position) => {
-				let referencedColumn = StringUtils.default(foreignKey.referencedColumns[position], () => '');
+	// The reverse of buildForeignKeys: every table's foreign keys whose referenced table is a target,
+	// wherever the child lives - the real query has no schema scoping on the child side either.
+	private buildReferencingForeignKeys(targets: CatalogResponder.Target[]): Record<string, unknown>[] {
+		let rows: Record<string, unknown>[] = [];
 
-				return {
-					OWNING_SCHEMA: schema.name,
-					OWNING_TABLE: table.name,
-					CONSTRAINT_NAME: foreignKey.name,
-					COLUMN_NAME: CatalogResponder.sqlNameOf(table, columnName),
-					SYSTEM_COLUMN_NAME: columnName,
-					ORDINAL_POSITION: position + 1,
-					UPDATE_RULE: foreignKey.updateRule,
-					DELETE_RULE: foreignKey.deleteRule,
-					REFERENCED_SCHEMA: foreignKey.referencedSchema,
-					REFERENCED_TABLE: foreignKey.referencedTable,
-					REFERENCED_COLUMN_NAME: referenced ? CatalogResponder.sqlNameOf(referenced, referencedColumn) : referencedColumn,
-					REFERENCED_SYSTEM_COLUMN_NAME: referencedColumn
-				};
-			});
-		}));
+		for(let target of targets) {
+			for(let schema of this.database.schemas) {
+				for(let table of schema.tables) {
+					for(let foreignKey of table.foreignKeys) {
+						let schemaMatches = StringUtils.isBlank(target.schema) || StringUtils.equalsIgnoreCase(foreignKey.referencedSchema, target.schema);
+
+						if(schemaMatches && StringUtils.equalsIgnoreCase(foreignKey.referencedTable, target.table)) {
+							rows.push(...this.foreignKeyRows(schema, table, foreignKey));
+						}
+					}
+				}
+			}
+		}
+
+		return rows;
+	}
+
+	private foreignKeyRows(schema: FakeSchema, table: FakeTable, foreignKey: FakeForeignKey): Record<string, unknown>[] {
+		let referenced = this.database.schemas
+			.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, foreignKey.referencedSchema))
+			?.tables.find(candidate => StringUtils.equalsIgnoreCase(candidate.name, foreignKey.referencedTable));
+
+		return foreignKey.columns.map((columnName, position) => {
+			let referencedColumn = StringUtils.default(foreignKey.referencedColumns[position], () => '');
+
+			return {
+				OWNING_SCHEMA: schema.name,
+				OWNING_TABLE: table.name,
+				CONSTRAINT_NAME: foreignKey.name,
+				COLUMN_NAME: CatalogResponder.sqlNameOf(table, columnName),
+				SYSTEM_COLUMN_NAME: columnName,
+				ORDINAL_POSITION: position + 1,
+				UPDATE_RULE: foreignKey.updateRule,
+				DELETE_RULE: foreignKey.deleteRule,
+				REFERENCED_SCHEMA: foreignKey.referencedSchema,
+				REFERENCED_TABLE: foreignKey.referencedTable,
+				REFERENCED_COLUMN_NAME: referenced ? CatalogResponder.sqlNameOf(referenced, referencedColumn) : referencedColumn,
+				REFERENCED_SYSTEM_COLUMN_NAME: referencedColumn
+			};
+		});
 	}
 
 	private buildIndexes(targets: CatalogResponder.Target[]): Record<string, unknown>[] {

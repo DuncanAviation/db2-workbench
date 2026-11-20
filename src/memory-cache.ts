@@ -287,6 +287,25 @@ export class MemoryCache {
 		await this.deleteTableEntitiesCache(options, options?.tables, MemoryCache.Keys.SYSTEM_FOREIGN_KEYS);
 	}
 
+	// The foreign keys in other tables that point at these tables. Each row is still the child's own key,
+	// but it's attributed to - and cached under - the table it references, so a table nothing references
+	// is cached as [] like any other empty lookup. Kept apart from getForeignKeys' slots: a referenced
+	// table's slot holds only the keys pointing at it, never a child's full list.
+	async getReferencingForeignKeys(options: TableQueries.ListForeignKeysOptions): Promise<SystemForeignKey[]> {
+		return this.loadTableEntities<SystemForeignKey>({
+			options: options,
+			tables: options?.tables,
+			cacheKey: MemoryCache.Keys.SYSTEM_REFERENCING_FOREIGN_KEYS,
+			resolveSchema: true,
+			identity: foreignKey => ({schema: foreignKey.referencedSchema, table: foreignKey.referencedTable}),
+			fetch: tables => this.extension.tableQueries.listReferencingForeignKeys({...options, tables: tables})
+		});
+	}
+
+	async deleteReferencingForeignKeysCache(options: TableQueries.ListForeignKeysOptions): Promise<void> {
+		await this.deleteTableEntitiesCache(options, options?.tables, MemoryCache.Keys.SYSTEM_REFERENCING_FOREIGN_KEYS);
+	}
+
 	async getIndexes(options: IndexQueries.ListIndexesOptions): Promise<SystemIndex[]> {
 		return this.loadTableEntities<SystemIndex>({
 			options: options,
@@ -551,7 +570,8 @@ export class MemoryCache {
 		});
 	}
 
-	// The one cache/fetch path behind getColumns/getTableKeys/getForeignKeys/getIndexes/getIndexAdvice/getTriggers.
+	// The one cache/fetch path behind getColumns/getTableKeys/getForeignKeys/getReferencingForeignKeys/
+	// getIndexes/getIndexAdvice/getTriggers.
 	//
 	// Every requested table keeps its OWN cache slot, so the set of tables asked about can change
 	// freely without invalidating the ones already looked at, and a table cached as "no rows" (an empty
@@ -786,6 +806,7 @@ export namespace MemoryCache {
 		SYSTEM_INDEX_ADVICE = 'system-index-advice',
 		SYSTEM_TABLE_KEYS = 'system-table-keys',
 		SYSTEM_FOREIGN_KEYS = 'system-foreign-keys',
+		SYSTEM_REFERENCING_FOREIGN_KEYS = 'system-referencing-foreign-keys',
 		SYSTEM_INDEXES = 'system-indexes',
 		SYSTEM_TRIGGERS = 'system-triggers',
 		SOURCE_TEXT = 'source-text'

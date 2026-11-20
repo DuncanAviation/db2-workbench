@@ -10,6 +10,7 @@ import { ImportBadge } from '../../shared/components/import-badge';
 import { Loading } from '../../shared/components/loading';
 import { SqlErrorDisplay } from '../../shared/components/sql-error-display';
 import { schemasVsCodeApi } from '../vscode-api';
+import { TableLink } from './table-link';
 
 interface Props {
 	table: { schema: string; name: string };
@@ -37,7 +38,13 @@ const BASE_COLUMN_DEFS: ColumnDef<ResolvedForeignKey>[] = [
 	{ accessorKey: 'updateRule', header: 'Update Rule' },
 	{ accessorKey: 'deleteRule', header: 'Delete Rule' },
 	{ accessorKey: 'referencedSchema', header: 'Referenced Schema' },
-	{ accessorKey: 'referencedTable', header: 'Referenced Table' },
+	{
+		accessorKey: 'referencedTable',
+		header: 'Referenced Table',
+		// An import that names only the referenced table means one in the child's own schema - the same
+		// rule the diagram applies (diagram-resolved-table.ts).
+		cell: info => <TableLink schema={info.row.original.referencedSchema || info.row.original.schema} table={info.row.original.referencedTable} />
+	},
 	{ accessorKey: 'referencedColumnName', header: 'Referenced Column' },
 	{ accessorKey: 'referencedSystemColumnName', header: 'Referenced System Column' }
 ];

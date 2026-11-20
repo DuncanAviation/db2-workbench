@@ -216,6 +216,25 @@ export interface LoadForeignKeysMessage {
 	forceRefresh?: boolean;
 }
 
+// The Referenced By tab: the foreign keys in other tables that point at this one.
+export interface LoadReferencingForeignKeysMessage {
+	command: 'loadReferencingForeignKeys';
+	schema: string;
+	table: string;
+	/** See MemoryCache.deleteReferencingForeignKeysCache - used by the Referenced By tab's Refresh action
+	 * rather than its initial (cache-friendly) load. */
+	forceRefresh?: boolean;
+}
+
+// A table name on the Foreign Keys or Referenced By tab was clicked: open that table's tab. Goes through
+// the host rather than straight to the webview's own openTab, so a table in a schema that isn't on the
+// panel's schema list is added to it first, the same as View Table Details from a SQL editor.
+export interface OpenTableMessage {
+	command: 'openTable';
+	schema: string;
+	table: string;
+}
+
 // Index advice isn't part of SchemasInitialState either, same reasoning as columns above.
 export interface LoadIndexAdviceMessage {
 	command: 'loadIndexAdvice';
@@ -653,7 +672,7 @@ export interface SchemaImportReport {
 	sections?: SqlImportSectionSummary[];
 }
 
-export type SchemasOutboundMessage = LoadViewDefinitionMessage | LoadLogicalFileMessage | LoadLogicalFileSourceMessage | LoadRoutineParamsMessage | LoadRoutineDetailMessage | LoadRoutineDdlMessage | LoadRoutineSourceMessage | LoadSqlImportMessage | SaveSqlImportMessage | RefreshSqlImportMessage | LoadSqlImportConnectionsMessage | RunSqlImportMessage | ImportSqlSchemaMessage | DiscardSqlImportRunMessage | LoadImportsMessage | ApplyImportsMessage | LoadColumnsMessage | LoadTableKeysMessage | LoadForeignKeysMessage | LoadIndexesMessage | LoadIndexAdviceMessage | LoadTriggersMessage | LoadTriggerSourceMessage | RunGeneratedSqlMessage | DeleteIndexMessage | RenameIndexMessage | DeleteIndexAdviceMessage | LoadTableDataMessage | RunDataEditStatementsMessage | UpdateSchemaListMessage | ExportSchemaMessage | ImportSchemaMessage | ImportSchemaFromTextMessage | DisableImportedTableDataMessage | EnableImportedTableDataMessage | SavePanelWidthMessage | SaveDataEditSettingsMessage;
+export type SchemasOutboundMessage = LoadViewDefinitionMessage | LoadLogicalFileMessage | LoadLogicalFileSourceMessage | LoadRoutineParamsMessage | LoadRoutineDetailMessage | LoadRoutineDdlMessage | LoadRoutineSourceMessage | LoadSqlImportMessage | SaveSqlImportMessage | RefreshSqlImportMessage | LoadSqlImportConnectionsMessage | RunSqlImportMessage | ImportSqlSchemaMessage | DiscardSqlImportRunMessage | LoadImportsMessage | ApplyImportsMessage | LoadColumnsMessage | LoadTableKeysMessage | LoadForeignKeysMessage | LoadReferencingForeignKeysMessage | OpenTableMessage | LoadIndexesMessage | LoadIndexAdviceMessage | LoadTriggersMessage | LoadTriggerSourceMessage | RunGeneratedSqlMessage | DeleteIndexMessage | RenameIndexMessage | DeleteIndexAdviceMessage | LoadTableDataMessage | RunDataEditStatementsMessage | UpdateSchemaListMessage | ExportSchemaMessage | ImportSchemaMessage | ImportSchemaFromTextMessage | DisableImportedTableDataMessage | EnableImportedTableDataMessage | SavePanelWidthMessage | SaveDataEditSettingsMessage;
 
 export interface ColumnsLoadedMessage {
 	command: 'columnsLoaded';
@@ -692,6 +711,21 @@ export interface ForeignKeysLoadedMessage {
 	schema: string;
 	table: string;
 	foreignKeys: ResolvedForeignKey[];
+}
+
+export interface ReferencingForeignKeysLoadedMessage {
+	command: 'referencingForeignKeysLoaded';
+	schema: string;
+	table: string;
+	/** Each row is a child table's key: schema/tableName name the child, referenced* this table. */
+	foreignKeys: ResolvedForeignKey[];
+}
+
+export interface ReferencingForeignKeysErrorMessage {
+	command: 'referencingForeignKeysError';
+	schema: string;
+	table: string;
+	error: DbErrorUtils.SerializedError;
 }
 
 export interface ForeignKeysErrorMessage {
@@ -969,7 +1003,7 @@ export interface LogicalFileSourceErrorMessage {
 	error: DbErrorUtils.SerializedError;
 }
 
-export type SchemasInboundMessage = ViewDefinitionLoadedMessage | ViewDefinitionErrorMessage | LogicalFileLoadedMessage | LogicalFileErrorMessage | LogicalFileSourceLoadedMessage | LogicalFileSourceErrorMessage | RoutineParamsLoadedMessage | RoutineParamsErrorMessage | RoutineDetailLoadedMessage | RoutineDetailErrorMessage | RoutineDdlLoadedMessage | RoutineDdlErrorMessage | RoutineSourceLoadedMessage | RoutineSourceErrorMessage | ColumnsLoadedMessage | ColumnsErrorMessage | TableKeysLoadedMessage | TableKeysErrorMessage | ForeignKeysLoadedMessage | ForeignKeysErrorMessage | IndexesLoadedMessage | IndexesErrorMessage | IndexAdviceLoadedMessage | IndexAdviceErrorMessage | TriggersLoadedMessage | TriggersErrorMessage | TriggerSourceLoadedMessage | TriggerSourceErrorMessage | TableDataLoadedMessage | TableDataErrorMessage;
+export type SchemasInboundMessage = ViewDefinitionLoadedMessage | ViewDefinitionErrorMessage | LogicalFileLoadedMessage | LogicalFileErrorMessage | LogicalFileSourceLoadedMessage | LogicalFileSourceErrorMessage | RoutineParamsLoadedMessage | RoutineParamsErrorMessage | RoutineDetailLoadedMessage | RoutineDetailErrorMessage | RoutineDdlLoadedMessage | RoutineDdlErrorMessage | RoutineSourceLoadedMessage | RoutineSourceErrorMessage | ColumnsLoadedMessage | ColumnsErrorMessage | TableKeysLoadedMessage | TableKeysErrorMessage | ForeignKeysLoadedMessage | ForeignKeysErrorMessage | ReferencingForeignKeysLoadedMessage | ReferencingForeignKeysErrorMessage | IndexesLoadedMessage | IndexesErrorMessage | IndexAdviceLoadedMessage | IndexAdviceErrorMessage | TriggersLoadedMessage | TriggersErrorMessage | TriggerSourceLoadedMessage | TriggerSourceErrorMessage | TableDataLoadedMessage | TableDataErrorMessage;
 
 // Sent to a schemas panel that's already open when "View Table Details" is invoked again for the
 // same connection - the resolved case (SchemasProvider.TableTarget's 'table' and 'view' kinds). Kept out

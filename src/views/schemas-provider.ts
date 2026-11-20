@@ -16,6 +16,7 @@ import { assembleTableSchema } from '../schema-conversion/table-schema-assembler
 import { SCHEMA_FORMATS } from '../schema-conversion/schema-formats.js';
 import { findImportsToDelete, findImportsToUnlink } from '../schema-conversion/import-groups.js';
 import { resolveColumns, resolveForeignKeys, resolveIndexes, resolveTable, resolveTableKeys } from '../schema-conversion/table-resolver.js';
+import { sqlImportTableKey } from '../schema-conversion/sql-import-converter.js';
 import { addTables } from '../diagram/diagram-add-tables.js';
 import { toDiagramTable } from '../diagram/diagram-resolved-table.js';
 import { diagramModelToXml } from '../diagram/diagram-xml.js';
@@ -49,6 +50,8 @@ import {
 	ColumnsLoadedMessage,
 	ForeignKeysErrorMessage,
 	ForeignKeysLoadedMessage,
+	ReferencingForeignKeysErrorMessage,
+	ReferencingForeignKeysLoadedMessage,
 	ImportSchemaErrorMessage,
 	ImportSchemaSummaryMessage,
 	ImportsLoadedMessage,
@@ -185,6 +188,10 @@ export class SchemasProvider {
 				await this.postTableKeys(panel, key, config.id, message.schema, message.table, message.forceRefresh);
 			} else if(message.command === 'loadForeignKeys') {
 				await this.postForeignKeys(panel, key, config.id, message.schema, message.table, message.forceRefresh);
+			} else if(message.command === 'loadReferencingForeignKeys') {
+				await this.postReferencingForeignKeys(panel, key, config.id, message.schema, message.table, message.forceRefresh);
+			} else if(message.command === 'openTable') {
+				await this.selectTable(panel, key, config.id, {kind: 'table', schema: message.schema, table: message.table});
 			} else if(message.command === 'loadIndexes') {
 				await this.postIndexes(panel, key, config.id, message.schema, message.table, message.forceRefresh);
 			} else if(message.command === 'loadIndexAdvice') {
@@ -560,6 +567,22 @@ export class SchemasProvider {
 			panel.webview.postMessage(<ForeignKeysLoadedMessage>{command: 'foreignKeysLoaded', schema: schema, table: table, foreignKeys: resolved});
 		} catch(error) {
 			panel.webview.postMessage(<ForeignKeysErrorMessage>{command: 'foreignKeysError', schema: schema, table: table, error: DbErrorUtils.serialize(error)});
+		}
+	}
+
+	// No connectedTableExists check: a table DB2 doesn't have is referenced by nothing there, so the
+	// catalog half simply comes back empty, while imports can still point at an imported-only table.
+	private async postReferencingForeignKeys(panel: vscode.WebviewPanel, key: string, configId: string, schema: string, table: string, forceRefresh?: boolean): Promise<void> {
+		try {
+			if(forceRefresh) {
+				await this.extension.memoryCache.deleteReferencingForeignKeysCache({key: key, configId: configId, tables: {schema: schema, table: table}});
+			}
+
+			let byTable = await this.extension.schemaTrees.loadReferencingForeignKeys({key: key, configId: configId}, [{schema: schema, table: table}]);
+			let foreignKeys = byTable.get(sqlImportTableKey(schema, table)) ?? [];
+			panel.webview.postMessage(<ReferencingForeignKeysLoadedMessage>{command: 'referencingForeignKeysLoaded', schema: schema, table: table, foreignKeys: foreignKeys});
+		} catch(error) {
+			panel.webview.postMessage(<ReferencingForeignKeysErrorMessage>{command: 'referencingForeignKeysError', schema: schema, table: table, error: DbErrorUtils.serialize(error)});
 		}
 	}
 

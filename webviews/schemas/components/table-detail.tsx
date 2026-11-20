@@ -9,6 +9,7 @@ import { getEntryKey } from '../table-key';
 import { AdvisedIndexesTab } from './advised-indexes-tab';
 import { ColumnsTab } from './columns-tab';
 import { ForeignKeysTab } from './foreign-keys-tab';
+import { ReferencedByTab } from './referenced-by-tab';
 import { ImportedInfoTab } from './imported-info-tab';
 import { IndexesTab } from './indexes-tab';
 import { InfoTab } from './info-tab';
@@ -69,11 +70,11 @@ interface Props {
 // 'definition' is a view's, a routine's and a materialized query table's tab (see ViewDetail, RoutineDetail), 'parameters'/'resultColumns'/
 // 'programSource' a routine's - one shared key type, since app.tsx remembers a single selected sub-tab across every open
 // tab, whatever its kind.
-export type SubTabKey = 'info' | 'definition' | 'parameters' | 'resultColumns' | 'programSource' | 'columns' | 'tableKeys' | 'foreignKeys' | 'indexes' | 'advisedIndexes' | 'triggers' | 'data';
+export type SubTabKey = 'info' | 'definition' | 'parameters' | 'resultColumns' | 'programSource' | 'columns' | 'tableKeys' | 'foreignKeys' | 'referencedBy' | 'indexes' | 'advisedIndexes' | 'triggers' | 'data';
 
 const NOT_TABLE_SUB_TABS: readonly SubTabKey[] = ['definition', 'parameters', 'resultColumns', 'programSource'];
 
-const NOT_MQT_SUB_TABS: readonly SubTabKey[] = ['tableKeys', 'foreignKeys', 'triggers'];
+const NOT_MQT_SUB_TABS: readonly SubTabKey[] = ['tableKeys', 'foreignKeys', 'referencedBy', 'triggers'];
 
 export function TableDetail({ entry, currentSortSequence, currentSortSequenceLibrary, editMode, onEnterEditMode, onCancelEditClick, isRunning, pendingStatements, onUpsertStatement, onDeleteStatement, runCompletionNotice, onOpenExport, onDisableImportedChange, onEnableImportedChange, subTab, onSubTabChange }: Props) {
 	const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
@@ -184,6 +185,7 @@ export function TableDetail({ entry, currentSortSequence, currentSortSequenceLib
 				{isMqt && <Tab label="Definition" value="definition" />}
 				{!isMqt && <Tab label="Table Keys" value="tableKeys" />}
 				{!isMqt && <Tab label="Foreign Keys" value="foreignKeys" />}
+				{!isMqt && <Tab label="Referenced By" value="referencedBy" />}
 				<Tab label="Indexes" value="indexes" />
 				{connected && <Tab label="Advised Indexes" value="advisedIndexes" />}
 				{connected && !isMqt && <Tab label="Triggers" value="triggers" />}
@@ -196,6 +198,7 @@ export function TableDetail({ entry, currentSortSequence, currentSortSequenceLib
 				{isMqt && displaySubTab === 'definition' && <ViewDefinitionTab view={minimalTable} source="mqt" />}
 				{displaySubTab === 'tableKeys' && <TableKeysTab key={importedFingerprint} table={minimalTable} hasImportedData={hasImportedData} />}
 				{displaySubTab === 'foreignKeys' && <ForeignKeysTab key={importedFingerprint} table={minimalTable} hasImportedData={hasImportedData} />}
+				{displaySubTab === 'referencedBy' && <ReferencedByTab key={importedFingerprint} table={minimalTable} />}
 				{displaySubTab === 'indexes' && <IndexesTab key={importedFingerprint} table={minimalTable} hasImportedData={hasImportedData} />}
 				{connected && displaySubTab === 'advisedIndexes' && (
 					<AdvisedIndexesTab
