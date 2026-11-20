@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Extension } from '../extension.js';
+import { EmbeddedSqlExtractor } from './embedded-sql-extractor.js';
 import { SqlDocumentFormatter } from './sql-document-formatter.js';
 import { SqlStatementSplitter } from './sql-statement-splitter.js';
 import { SqlTokenizer } from './sql-tokenizer.js';
@@ -31,10 +32,25 @@ export class SqlFormattingProvider implements vscode.DocumentFormattingEditProvi
 	// original range if the selection doesn't land inside any real statement (e.g. only whitespace
 	// between two statements), leaving today's behavior unchanged for that corner case.
 	private expandToEnclosingStatements(document: vscode.TextDocument, range: vscode.Range): vscode.Range {
-		let tokens = SqlTokenizer.tokenize(document.getText());
-		let spans = SqlStatementSplitter.split(tokens);
 		let selectionStart = document.offsetAt(range.start);
 		let selectionEnd = document.offsetAt(range.end);
+		let extraction = EmbeddedSqlExtractor.extract(document.getText());
+
+		// In host code a statement is a whole query, every host statement that builds it included.
+		if(extraction.hostCode) {
+			let touched = extraction.segments.filter(segment => segment.start < selectionEnd && segment.end > selectionStart);
+
+			if(touched.length === 0) {
+				return range;
+			}
+
+			let queryStart = Math.min(selectionStart, touched[0].start);
+			let queryEnd = Math.max(selectionEnd, touched[touched.length - 1].end);
+			return new vscode.Range(document.positionAt(queryStart), document.positionAt(queryEnd));
+		}
+
+		let tokens = SqlTokenizer.tokenize(document.getText());
+		let spans = SqlStatementSplitter.split(tokens);
 		let overlapping = spans.filter(span => span[0].start < selectionEnd && span[span.length - 1].stop + 1 > selectionStart);
 
 		if(overlapping.length === 0) {

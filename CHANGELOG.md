@@ -16,11 +16,13 @@ Odd minor versions (0.1.x, 0.3.x) are published to the Marketplace's pre-release
 ### Changed
 
 - **A tidier connection editor.** Fields are grouped into Connection, Sign-on, Connection String and Results sections, with compact fields and buttons, and the connection details sit in two columns.
+- **Formatting SQL pasted from application code reads it as code first.** Paste a query built in Java, C# or JavaScript/TypeScript into a SQL file and format it to get the SQL it builds. Queries built over several statements (`sql += ...`, `sb.append(...)`) are followed through their variable, and appends inside `if` blocks and loops are kept, under a `-- if (...)` comment naming the condition. An `else` branch, an `else if` and each `switch` case after the first are left as comments, since keeping two alternatives would usually make the SQL invalid. A value spliced into a quoted literal (`= '" + code + "'`) becomes a parameter in its place, C# interpolated and verbatim strings and Java text blocks are read too, and a host comment stays where it was instead of trailing the line before. Format Selection inside pasted code reformats the whole query.
 - **One control size everywhere.** Fields, checkboxes and buttons use the same compact size in every panel and dialog. The SQL Formatting editor, Add Row and Edit Row, query parameters and the Create Index dialog had larger fields, and most dialogs had larger buttons.
 
 ### Fixed
 
 - Stored passwords are no longer cleared when the extension shuts down. The clear didn't always finish, which is why a password was sometimes asked for again after a restart and sometimes not.
+- Formatting no longer breaks `EXCEPTION JOIN` (and its `LEFT`/`RIGHT` forms) across two lines, no longer starts a new line at an `AND` or `OR` inside a `CASE` expression, and keeps the space after `END` in `CASE ... END = value`.
 - A connection that fails because the host can't be reached no longer deletes the stored password or asks for it again. Only a refused sign-on (wrong, expired or disabled) does.
 
 ## [0.2.0] - 2026-10-23
