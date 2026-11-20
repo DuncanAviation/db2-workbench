@@ -5,22 +5,22 @@ import { IndexKeyUtils } from './index-key-utils.js';
 describe('IndexKeyUtils', () => {
 	describe('parseKeyColumns()', () => {
 		it('keeps key order, which is not alphabetical', () => {
-			expect(IndexKeyUtils.parseKeyColumns('WMWOTP, WMSTAT, WMPRTP, BILDAT, WMDPCR, WONO').map(key => key.name))
-				.to.deep.equal(['WMWOTP', 'WMSTAT', 'WMPRTP', 'BILDAT', 'WMDPCR', 'WONO']);
+			expect(IndexKeyUtils.parseKeyColumns('JOBTYPE, JOBSTAT, JOBPRTY, BILLDT, JOBDEPT, JOBNO').map(key => key.name))
+				.to.deep.equal(['JOBTYPE', 'JOBSTAT', 'JOBPRTY', 'BILLDT', 'JOBDEPT', 'JOBNO']);
 		});
 
 		it('numbers the keys from 1 and reads a trailing DESC as descending', () => {
-			expect(IndexKeyUtils.parseKeyColumns('DATIN DESC, WMPRTP, CUSNO')).to.deep.equal([
-				{position: 1, name: 'DATIN', descending: true},
-				{position: 2, name: 'WMPRTP', descending: false},
-				{position: 3, name: 'CUSNO', descending: false}
+			expect(IndexKeyUtils.parseKeyColumns('OPENDT DESC, JOBPRTY, CUSTNO')).to.deep.equal([
+				{position: 1, name: 'OPENDT', descending: true},
+				{position: 2, name: 'JOBPRTY', descending: false},
+				{position: 3, name: 'CUSTNO', descending: false}
 			]);
 		});
 
 		it('reads a column named DESC as a column, and only a word after it as a direction', () => {
-			expect(IndexKeyUtils.parseKeyColumns('DESC, WMSTAT, WMPRTP, DATCOM')[0]).to.deep.equal({position: 1, name: 'DESC', descending: false});
+			expect(IndexKeyUtils.parseKeyColumns('DESC, JOBSTAT, JOBPRTY, DONEDT')[0]).to.deep.equal({position: 1, name: 'DESC', descending: false});
 			expect(IndexKeyUtils.parseKeyColumns('DESC DESC')).to.deep.equal([{position: 1, name: 'DESC', descending: true}]);
-			expect(IndexKeyUtils.parseKeyColumns('WMHSID, WMMDID, DEPT, WMSTAT, DSC').map(key => key.name)).to.deep.equal(['WMHSID', 'WMMDID', 'DEPT', 'WMSTAT', 'DSC']);
+			expect(IndexKeyUtils.parseKeyColumns('JOBHIST, JOBMODL, DEPT, JOBSTAT, DSC').map(key => key.name)).to.deep.equal(['JOBHIST', 'JOBMODL', 'DEPT', 'JOBSTAT', 'DSC']);
 		});
 
 		it('treats ASC as a direction too, in any case', () => {
@@ -31,9 +31,9 @@ describe('IndexKeyUtils', () => {
 		});
 
 		it('keeps an expression key whole, commas and all', () => {
-			expect(IndexKeyUtils.parseKeyColumns('CHAR ( SUBSTR ( WONO , 1 , 4 ) , 5 ), WMSTAT DESC')).to.deep.equal([
-				{position: 1, name: 'CHAR ( SUBSTR ( WONO , 1 , 4 ) , 5 )', descending: false},
-				{position: 2, name: 'WMSTAT', descending: true}
+			expect(IndexKeyUtils.parseKeyColumns('CHAR ( SUBSTR ( JOBNO , 1 , 4 ) , 5 ), JOBSTAT DESC')).to.deep.equal([
+				{position: 1, name: 'CHAR ( SUBSTR ( JOBNO , 1 , 4 ) , 5 )', descending: false},
+				{position: 2, name: 'JOBSTAT', descending: true}
 			]);
 		});
 

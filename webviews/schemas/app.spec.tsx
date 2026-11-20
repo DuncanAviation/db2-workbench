@@ -272,14 +272,14 @@ describe('schemas webview', () => {
 
 			postFromHost<SchemasInboundMessage>({ command: 'logicalFileLoaded', schema: 'SALES', table: 'ORDERSL1', file: {
 				schema: 'SALES', name: 'ORDERSL1', basedOn: [{ library: 'SALES', file: 'ORDERS', member: 'ORDERS', format: 'ORDERSL1R' }],
-				accessPathType: 'KEYED UNIQUE', keyFieldCount: 1, keyFields: 'WONO', maintenance: '*IMMED', selectOmit: true, joinLogical: false, dynamicSelection: false,
+				accessPathType: 'KEYED UNIQUE', keyFieldCount: 1, keyFields: 'JOBNO', maintenance: '*IMMED', selectOmit: true, joinLogical: false, dynamicSelection: false,
 				formatName: 'ORDERSL1R'
 			} });
 
 			expect(screen.getByText('SALES/ORDERS, format ORDERSL1R')).toBeTruthy();
 			expect(screen.getByText('KEYED UNIQUE')).toBeTruthy();
 			expect(screen.getByText('*IMMED')).toBeTruthy();
-			expect(keyRows()).toEqual(['K01 WONO']);
+			expect(keyRows()).toEqual(['K01 JOBNO']);
 		});
 
 		// The key list as the green screen labels it, in key order - its own group, so it never mixes with
@@ -291,7 +291,7 @@ describe('schemas webview', () => {
 
 		function postKeys(keyFields: string) {
 			postFromHost<SchemasInboundMessage>({ command: 'logicalFileLoaded', schema: 'SALES', table: 'ORDERSL1', file: {
-				schema: 'SALES', name: 'ORDERSL1', basedOn: [{ library: 'SALES', file: 'WOPMAS' }], accessPathType: 'KEYED',
+				schema: 'SALES', name: 'ORDERSL1', basedOn: [{ library: 'SALES', file: 'JOBHDR' }], accessPathType: 'KEYED',
 				keyFieldCount: keyFields.split(',').length, keyFields: keyFields, selectOmit: false, joinLogical: false, dynamicSelection: false
 			} });
 		}
@@ -300,10 +300,10 @@ describe('schemas webview', () => {
 			let user = userEvent.setup();
 			await openLogicalFile(user);
 
-			postKeys('WMWOTP, WMSTAT DESC, BILDAT');
+			postKeys('JOBTYPE, JOBSTAT DESC, BILLDT');
 
 			expect(screen.getByRole('heading', { name: 'Key Fields' })).toBeTruthy();
-			expect(keyRows()).toEqual(['K01 WMWOTP', 'K02 WMSTAT Descending', 'K03 BILDAT']);
+			expect(keyRows()).toEqual(['K01 JOBTYPE', 'K02 JOBSTAT Descending', 'K03 BILLDT']);
 		});
 
 		it('labels the key columns on the Columns tab, and sorts by key order on the Key header', async () => {
@@ -312,22 +312,22 @@ describe('schemas webview', () => {
 			await user.click(screen.getByRole('tab', { name: 'Columns' }));
 
 			postFromHost<SchemasInboundMessage>({ command: 'columnsLoaded', schema: 'SALES', table: 'ORDERSL1', columns: [
-				column({ systemName: 'BILDAT', colNo: 1 }),
-				column({ systemName: 'CUSNO', colNo: 2 }),
-				column({ systemName: 'WMSTAT', sqlName: 'WORK_ORDER_STATUS', colNo: 3 }),
-				column({ systemName: 'WMWOTP', colNo: 4 })
+				column({ systemName: 'BILLDT', colNo: 1 }),
+				column({ systemName: 'CUSTNO', colNo: 2 }),
+				column({ systemName: 'JOBSTAT', sqlName: 'WORK_ORDER_STATUS', colNo: 3 }),
+				column({ systemName: 'JOBTYPE', colNo: 4 })
 			] });
-			// COLUMN_NAMES may give the long name - WMSTAT is matched by it.
-			postKeys('WMWOTP, WORK_ORDER_STATUS DESC, BILDAT');
+			// COLUMN_NAMES may give the long name - JOBSTAT is matched by it.
+			postKeys('JOBTYPE, WORK_ORDER_STATUS DESC, BILLDT');
 
 			let keyCells = () => screen.getAllByRole('row').slice(1).map(row => {
 				let cells = within(row).getAllByRole('cell');
 				return `${cells[1].textContent}:${cells[3].textContent}`;
 			});
-			expect(keyCells()).toEqual(['K03:BILDAT', ':CUSNO', 'K02 D:WMSTAT', 'K01:WMWOTP']);
+			expect(keyCells()).toEqual(['K03:BILLDT', ':CUSTNO', 'K02 D:JOBSTAT', 'K01:JOBTYPE']);
 
 			await user.click(screen.getByText('Key'));
-			expect(keyCells()).toEqual(['K01:WMWOTP', 'K02 D:WMSTAT', 'K03:BILDAT', ':CUSNO']);
+			expect(keyCells()).toEqual(['K01:JOBTYPE', 'K02 D:JOBSTAT', 'K03:BILLDT', ':CUSTNO']);
 		});
 
 		it('keeps the tree fields when SYSFILES cannot be read, and says why', async () => {
@@ -763,7 +763,7 @@ describe('schemas webview', () => {
 				schema: 'SALES',
 				table: 'CUSTOMER',
 				columns: [
-					column({ colNo: 1, systemName: 'CUSNO', sqlName: 'CUSTOMER_NUMBER', dataType: 'DECIMAL' }),
+					column({ colNo: 1, systemName: 'CUSTNO', sqlName: 'CUSTOMER_NUMBER', dataType: 'DECIMAL' }),
 					column({ colNo: 2, systemName: 'CUSNM', sqlName: 'CUSTOMER_NAME', dataType: 'VARCHAR', nulls: 'Y' })
 				]
 			});
@@ -789,7 +789,7 @@ describe('schemas webview', () => {
 			let user = userEvent.setup();
 			renderSchemas({ initialSelectedTable: { schema: 'SALES', table: 'CUSTOMER' } });
 			await user.click(screen.getByRole('tab', { name: 'Columns' }));
-			postFromHost<SchemasInboundMessage>({ command: 'columnsLoaded', schema: 'SALES', table: 'CUSTOMER', columns: [column({ systemName: 'CUSNO' })] });
+			postFromHost<SchemasInboundMessage>({ command: 'columnsLoaded', schema: 'SALES', table: 'CUSTOMER', columns: [column({ systemName: 'CUSTNO' })] });
 
 			await user.click(screen.getByRole('button', { name: 'Refresh' }));
 

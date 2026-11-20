@@ -4,24 +4,24 @@ import { ProcedureUtils } from './procedure-utils.js';
 describe('ProcedureUtils', () => {
 	describe('resolveSchema', () => {
 		it('picks the only library list schema that holds the procedure', () => {
-			let libraryList = [{ name: 'APPL', position: 1 }, { name: 'QGPL', position: 2 }];
-			let procedures = [{ schema: 'QSCRATCH', name: 'SPUSER001' }, { schema: 'APPL', name: 'SPUSER001' }];
+			let libraryList = [{ name: 'PRODLIB', position: 1 }, { name: 'QGPL', position: 2 }];
+			let procedures = [{ schema: 'QSCRATCH', name: 'SPWIDGET01' }, { schema: 'PRODLIB', name: 'SPWIDGET01' }];
 
-			expect(ProcedureUtils.resolveSchema(libraryList, procedures, 'SPUSER001')).to.equal('APPL');
+			expect(ProcedureUtils.resolveSchema(libraryList, procedures, 'SPWIDGET01')).to.equal('PRODLIB');
 		});
 
 		it('picks the first schema in library list order, not alphabetical or catalog order', () => {
-			let libraryList = [{ name: 'APPL', position: 2 }, { name: 'QSCRATCH', position: 1 }];
-			let procedures = [{ schema: 'APPL', name: 'SPUSER001' }, { schema: 'QSCRATCH', name: 'SPUSER001' }];
+			let libraryList = [{ name: 'PRODLIB', position: 2 }, { name: 'QSCRATCH', position: 1 }];
+			let procedures = [{ schema: 'PRODLIB', name: 'SPWIDGET01' }, { schema: 'QSCRATCH', name: 'SPWIDGET01' }];
 
-			expect(ProcedureUtils.resolveSchema(libraryList, procedures, 'spuser001')).to.equal('QSCRATCH');
+			expect(ProcedureUtils.resolveSchema(libraryList, procedures, 'spwidget01')).to.equal('QSCRATCH');
 		});
 
 		it('returns undefined when no library list schema holds the procedure', () => {
-			let libraryList = [{ name: 'APPL', position: 1 }];
-			let procedures = [{ schema: 'QSCRATCH', name: 'SPUSER001' }, { schema: 'APPL', name: 'OTHERSP' }];
+			let libraryList = [{ name: 'PRODLIB', position: 1 }];
+			let procedures = [{ schema: 'QSCRATCH', name: 'SPWIDGET01' }, { schema: 'PRODLIB', name: 'OTHERSP' }];
 
-			expect(ProcedureUtils.resolveSchema(libraryList, procedures, 'SPUSER001')).to.equal(undefined);
+			expect(ProcedureUtils.resolveSchema(libraryList, procedures, 'SPWIDGET01')).to.equal(undefined);
 		});
 	});
 
@@ -51,13 +51,13 @@ describe('ProcedureUtils', () => {
 
 		it('falls back to the nearest overload with more parameters, which defaults could fill', () => {
 			let procedures = [
-				{ schema: 'APPL', name: 'P', parameterCount: 5 },
-				{ schema: 'APPL', name: 'P', parameterCount: 3 },
-				{ schema: 'APPL', name: 'P', parameterCount: 1 }
+				{ schema: 'PRODLIB', name: 'P', parameterCount: 5 },
+				{ schema: 'PRODLIB', name: 'P', parameterCount: 3 },
+				{ schema: 'PRODLIB', name: 'P', parameterCount: 1 }
 			];
 
-			expect(ProcedureUtils.resolveOverload(procedures, 'APPL', 'P', 2).procedure?.parameterCount).to.equal(3);
-			expect(ProcedureUtils.resolveOverload(procedures, 'APPL', 'P', 6).procedure).to.equal(undefined);
+			expect(ProcedureUtils.resolveOverload(procedures, 'PRODLIB', 'P', 2).procedure?.parameterCount).to.equal(3);
+			expect(ProcedureUtils.resolveOverload(procedures, 'PRODLIB', 'P', 6).procedure).to.equal(undefined);
 		});
 
 		it('reports no candidates for a name the schema does not hold', () => {

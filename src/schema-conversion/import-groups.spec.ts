@@ -128,16 +128,16 @@ describe('findFullyDisabledImports', () => {
 	}
 
 	it('reports an import whose every table this apply disables', () => {
-		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER'}, {table: 'APPUSJB'}])], [
+		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER'}, {table: 'USERJOB'}])], [
 			{importId: 'import-1', schema: 'ACME', table: 'APPUSER'},
-			{importId: 'import-1', schema: 'ACME', table: 'APPUSJB'}
+			{importId: 'import-1', schema: 'ACME', table: 'USERJOB'}
 		], []);
 
 		expect(emptied.map(entry => entry.importId)).to.deep.equal(['import-1']);
 	});
 
 	it('does not report an import that keeps a table applied', () => {
-		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER'}, {table: 'APPUSJB'}])], [
+		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER'}, {table: 'USERJOB'}])], [
 			{importId: 'import-1', schema: 'ACME', table: 'APPUSER'}
 		], []);
 
@@ -147,8 +147,8 @@ describe('findFullyDisabledImports', () => {
 	// Disabling the last APPLIED table of an import whose others were switched off earlier still leaves it
 	// with nothing applied - the earlier ones do not have to be named again.
 	it('counts a table that was already disabled', () => {
-		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER', enabled: false}, {table: 'APPUSJB'}])], [
-			{importId: 'import-1', schema: 'ACME', table: 'APPUSJB'}
+		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER', enabled: false}, {table: 'USERJOB'}])], [
+			{importId: 'import-1', schema: 'ACME', table: 'USERJOB'}
 		], []);
 
 		expect(emptied.map(entry => entry.importId)).to.deep.equal(['import-1']);
@@ -156,8 +156,8 @@ describe('findFullyDisabledImports', () => {
 
 	// ...unless the same apply is switching that one back on, in which case the import still has something.
 	it('does not count an already-disabled table this apply re-enables', () => {
-		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER', enabled: false}, {table: 'APPUSJB'}])], [
-			{importId: 'import-1', schema: 'ACME', table: 'APPUSJB'}
+		let emptied = findFullyDisabledImports([summary('import-1', [{table: 'APPUSER', enabled: false}, {table: 'USERJOB'}])], [
+			{importId: 'import-1', schema: 'ACME', table: 'USERJOB'}
 		], [
 			{importId: 'import-1', schema: 'ACME', table: 'APPUSER'}
 		]);
@@ -242,7 +242,7 @@ describe('findImportsToUnlink / findImportsToDelete', () => {
 	// The choice was made against a list that has since changed - acting anyway would throw away far more
 	// than this apply covers.
 	it('refuses an import the apply does not empty out', () => {
-		let deletable = findImportsToDelete([summary('import-1', ['APPUSER', 'APPUSJB'], true)], [
+		let deletable = findImportsToDelete([summary('import-1', ['APPUSER', 'USERJOB'], true)], [
 			{importId: 'import-1', schema: 'ACME', table: 'APPUSER'}
 		], [], ['import-1']);
 
@@ -258,11 +258,11 @@ describe('findImportsToUnlink / findImportsToDelete', () => {
 	});
 
 	it('acts only on the imports that were asked for', () => {
-		let summaries = [summary('import-1', ['APPUSER'], true), summary('import-2', ['APPJTTL'], true)];
+		let summaries = [summary('import-1', ['APPUSER'], true), summary('import-2', ['JOBTITLE'], true)];
 
 		let deletable = findImportsToDelete(summaries, [
 			{importId: 'import-1', schema: 'ACME', table: 'APPUSER'},
-			{importId: 'import-2', schema: 'ACME', table: 'APPJTTL'}
+			{importId: 'import-2', schema: 'ACME', table: 'JOBTITLE'}
 		], [], ['import-2']);
 
 		expect(deletable.map(entry => entry.importId)).to.deep.equal(['import-2']);

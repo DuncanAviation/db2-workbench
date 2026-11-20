@@ -25,7 +25,7 @@ function session(overrides: Partial<ResultsSessionDetail> = {}): ResultsSessionD
 			schemas: [
 				{ name: 'QSYS', type: 'SYSTEM' },
 				{ name: 'QTEMP', type: 'USER' },
-				{ name: 'APPL', type: 'USER' },
+				{ name: 'PRODLIB', type: 'USER' },
 				{ name: 'SALES', type: 'USER' }
 			]
 		},
@@ -49,7 +49,7 @@ describe('ConnectionTab', () => {
 		renderWebview(<ConnectionTab session={session()} />);
 
 		let entries = within(screen.getByRole('list', { name: 'Schema list' })).getAllByRole('listitem');
-		expect(entries.map(entry => entry.textContent)).toEqual(['1QSYSSystem', '2QTEMPUser', '3APPLUser', '4SALESUser']);
+		expect(entries.map(entry => entry.textContent)).toEqual(['1QSYSSystem', '2QTEMPUser', '3PRODLIBUser', '4SALESUser']);
 	});
 
 	it('names who is connected before when', () => {
@@ -81,7 +81,7 @@ describe('ConnectionTab', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Copy schema list' }));
 
-		expect(await navigator.clipboard.readText()).toBe('QSYS, QTEMP, APPL, SALES');
+		expect(await navigator.clipboard.readText()).toBe('QSYS, QTEMP, PRODLIB, SALES');
 	});
 
 	it('posts the edited user portion, and closes the dialog once the host reports success', async () => {
@@ -91,7 +91,7 @@ describe('ConnectionTab', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'Move SALES up' }));
 		await userEvent.click(screen.getByRole('button', { name: 'OK' }));
 
-		expect(postedMessages<ResultsOutboundMessage>()).toEqual([{ command: 'setLibraryList', uri: URI, userLibraries: ['QTEMP', 'SALES', 'APPL'] }]);
+		expect(postedMessages<ResultsOutboundMessage>()).toEqual([{ command: 'setLibraryList', uri: URI, userLibraries: ['QTEMP', 'SALES', 'PRODLIB'] }]);
 		expect(screen.getByRole('button', { name: 'Applying...' })).toBeTruthy();
 
 		// Another session's answer is not this dialog's.
@@ -126,7 +126,7 @@ describe('ConnectionTab', () => {
 		renderWebview(<ConnectionTab session={session()} />);
 
 		await userEvent.click(screen.getByRole('button', { name: 'Edit schema list' }));
-		await userEvent.click(screen.getByRole('button', { name: 'Remove APPL' }));
+		await userEvent.click(screen.getByRole('button', { name: 'Remove PRODLIB' }));
 		await userEvent.click(screen.getByRole('button', { name: 'OK' }));
 
 		postFromHost<ResultsInboundMessage>({
@@ -137,7 +137,7 @@ describe('ConnectionTab', () => {
 
 		let dialog = within(screen.getByRole('dialog'));
 		expect(dialog.getByText('The library list was not changed: SQL0443 - CPF2110 Library NOSUCH not found.')).toBeTruthy();
-		expect(dialog.queryByRole('listitem', { name: 'APPL' })).toBeNull();
+		expect(dialog.queryByRole('listitem', { name: 'PRODLIB' })).toBeNull();
 		expect(dialog.getByRole('button', { name: 'OK' }).hasAttribute('disabled')).toBe(false);
 	});
 

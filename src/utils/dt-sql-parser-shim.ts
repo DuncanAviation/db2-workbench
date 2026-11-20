@@ -37,8 +37,8 @@ export class Db2SyntaxShim {
 // finished yet).
 export class DanglingJoinRepair {
 	// The optional alias captured below must reject a reserved word (same list/reasoning as
-	// SqlParser.parseTables' own tableRefPattern) -- otherwise "JOIN appvlog on" (the user has typed
-	// the ON keyword but nothing else yet) reads as "JOIN appvlog AS on" with a still-dangling ON
+	// SqlParser.parseTables' own tableRefPattern) -- otherwise "JOIN auditlog on" (the user has typed
+	// the ON keyword but nothing else yet) reads as "JOIN auditlog AS on" with a still-dangling ON
 	// clause, and this repair appends a second, conflicting "ON 1=1" right after the real "on",
 	// producing invalid SQL that breaks dt-sql-parser's error recovery far worse than the original
 	// incomplete statement did.
@@ -56,7 +56,7 @@ export class DanglingJoinRepair {
 	);
 
 	// Same idea as DANGLING_JOIN, but for a JOIN whose "ON" the user already typed, with no
-	// condition after it yet -- e.g. content-assist firing right after "JOIN appvlog ON |". Without
+	// condition after it yet -- e.g. content-assist firing right after "JOIN auditlog ON |". Without
 	// this, dt-sql-parser doesn't just fail to parse the ON clause itself, it derails the whole
 	// statement's error recovery (observed empirically: it starts treating the FROM clause as its
 	// own complete statement and "JOIN" as extraneous input on a new one), which corrupts every

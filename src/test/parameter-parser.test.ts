@@ -64,7 +64,7 @@ const CUSTOMER_COLUMNS: FakeColumn[] = [
 
 suite('ParameterParser Test Suite', () => {
 	test('findOccurrences finds named parameters in order', () => {
-		let occurrences = ParameterParser.findOccurrences(`select * from appuser where fnam = :firstName and lnam = :lastName`);
+		let occurrences = ParameterParser.findOccurrences(`select * from appuser where firstnm = :firstName and lastnm = :lastName`);
 
 		assert.strictEqual(occurrences.length, 2);
 		assert.strictEqual(occurrences[0].name, 'firstName');
@@ -92,11 +92,11 @@ suite('ParameterParser Test Suite', () => {
 	});
 
 	test('substituteMarkers replaces every occurrence with "?"', () => {
-		let sql = `select * from appuser where fnam = :firstName and lnam = :lastName`;
+		let sql = `select * from appuser where firstnm = :firstName and lastnm = :lastName`;
 		let occurrences = ParameterParser.findOccurrences(sql);
 		let result = ParameterParser.substituteMarkers(sql, occurrences);
 
-		assert.strictEqual(result, `select * from appuser where fnam = ? and lnam = ?`);
+		assert.strictEqual(result, `select * from appuser where firstnm = ? and lastnm = ?`);
 	});
 
 	test('substituteMarkers handles a repeated parameter and preserves surrounding text', () => {
@@ -223,14 +223,14 @@ suite('ParameterParser Test Suite', () => {
 	});
 
 	test('buildCallParameters splices the resolved value into the correct position, leaving other literals untouched', () => {
-		let sql = `call SPUSER004 ('RX','',:employeeCode,'0001-01-01-00.00.00.000000',27355,'','E','Workorder.Open.Assign','')`;
+		let sql = `call SPWIDGET04 ('AB','',:employeeCode,'0001-01-01-00.00.00.000000',12345,'','E','Widget.Open.Assign','')`;
 		let resolvedParams: ParameterParser.SqlParameter[] = [
 			{key: 'employeecode|CHAR', name: 'employeeCode', label: ':employeeCode', dataType: 'CHAR'}
 		];
 
 		let result = ParameterParser.buildCallParameters(sql, resolvedParams, {'employeecode|CHAR': 'EMP123'});
 
-		assert.deepStrictEqual(result, ['RX', '', 'EMP123', '0001-01-01-00.00.00.000000', 27355, '', 'E', 'Workorder.Open.Assign', '']);
+		assert.deepStrictEqual(result, ['AB', '', 'EMP123', '0001-01-01-00.00.00.000000', 12345, '', 'E', 'Widget.Open.Assign', '']);
 	});
 
 	test('buildCallParameters uses the first entry when a marker resolves to a list of values', () => {

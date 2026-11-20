@@ -14,7 +14,7 @@ describe('sql-import-persistence', () => {
 				name: 'Site relationships',
 				statements: [
 					{section: 'tables', sql: 'select schema, name from catalog'},
-					{section: 'relationships', sql: 'select schema1, name1 from appdbrl'}
+					{section: 'relationships', sql: 'select schema1, name1 from dbrole'}
 				],
 				mappings: {
 					tables: {SCHEMA: 'schema', NAME: 'tableSystemName'},
@@ -27,7 +27,7 @@ describe('sql-import-persistence', () => {
 			expect(config.tables.sql).to.equal('select schema, name from catalog');
 			expect(config.tables.mapping).to.deep.equal({SCHEMA: 'schema', NAME: 'tableSystemName'});
 			expect(config.tables.resultColumns).to.deep.equal(['SCHEMA', 'NAME']);
-			expect(config.relationships?.sql).to.equal('select schema1, name1 from appdbrl');
+			expect(config.relationships?.sql).to.equal('select schema1, name1 from dbrole');
 		});
 
 		it('leaves an empty section out entirely rather than saving a blank statement', () => {
